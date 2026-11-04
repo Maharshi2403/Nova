@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from typing import BinaryIO
 
+from harness_ai.assignment import AssignmentError, run_mock_assignment
 from harness_ai.framing import FrameError, read_frame, write_frame
 from harness_ai.handshake import HandshakeError, build_ack
 
@@ -37,7 +38,13 @@ def serve(stdin: BinaryIO, stdout: BinaryIO) -> int:
             return 2
         if envelope is None or envelope.kind == "cancel":
             return 0
-        # Task handling arrives in later tickets; unknown work is logged, never guessed at.
+        if envelope.kind == "start_task":
+            try:
+                run_mock_assignment(envelope, stdin, stdout)
+            except (AssignmentError, FrameError) as exc:
+                _log(f"assignment aborted: {exc}")
+                return 2
+            continue
         _log(f"ignoring {envelope.kind} (not implemented)")
 
 
