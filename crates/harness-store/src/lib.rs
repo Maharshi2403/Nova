@@ -8,6 +8,7 @@ use sqlx::migrate::Migrator;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 
 pub mod leases;
+pub mod plans;
 pub mod repository;
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
@@ -36,6 +37,10 @@ pub enum StoreError {
     Serde(#[from] serde_json::Error),
     #[error("corrupt stored data: {0}")]
     Corrupt(String),
+    #[error("{0}")]
+    Plan(#[from] harness_core::plan::PlanError),
+    #[error("plan cannot be decided: {0}")]
+    PlanNotDecidable(&'static str),
 }
 
 impl StoreError {

@@ -29,6 +29,7 @@ async fn fresh_db_migrates() {
         [
             "events",
             "leases",
+            "plans",
             "projects",
             "runs",
             "task_dependencies",
