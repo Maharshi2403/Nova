@@ -4,5 +4,6 @@ pub mod config;
 pub mod dag;
 pub mod domain;
 pub mod framing;
+pub mod handshake;
 pub mod protocol;
 pub mod state;

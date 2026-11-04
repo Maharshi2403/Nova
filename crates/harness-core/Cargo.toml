@@ -13,4 +13,5 @@ serde_yaml_ng = "0.10"
 uuid = { version = "1", features = ["serde"] }
 
 [dev-dependencies]
+uuid = { version = "1", features = ["v4"] }
 jsonschema = { version = "0.30", default-features = false }
