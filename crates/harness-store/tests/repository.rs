@@ -66,14 +66,15 @@ async fn task_revision_conflict() {
     store.insert_task(&t).await.unwrap();
 
     let t1 = store
-        .transition_task(&rid(), t.id(), 0, TaskState::Pending)
+        .transition_task(&rid(), t.id(), 0, TaskState::Pending, None)
         .await
-        .unwrap();
+        .unwrap()
+        .task;
     assert_eq!((t1.state, t1.revision), (TaskState::Pending, 1));
 
     // Stale revision is rejected and leaves the row untouched.
     let err = store
-        .transition_task(&rid(), t.id(), 0, TaskState::Ready)
+        .transition_task(&rid(), t.id(), 0, TaskState::Ready, None)
         .await
         .unwrap_err();
     assert!(matches!(
@@ -99,7 +100,7 @@ async fn concurrent_transitions_only_one_wins() {
         let s = store.clone();
         let id = t.id().clone();
         handles.push(tokio::spawn(async move {
-            s.transition_task(&rid(), &id, 0, to).await.is_ok()
+            s.transition_task(&rid(), &id, 0, to, None).await.is_ok()
         }));
     }
     let wins = futures_count(handles).await;
@@ -123,7 +124,7 @@ async fn illegal_transition_rejected() {
     let t = Task::new(rid(), spec("a", &[])).unwrap();
     store.insert_task(&t).await.unwrap();
     let err = store
-        .transition_task(&rid(), t.id(), 0, TaskState::Completed)
+        .transition_task(&rid(), t.id(), 0, TaskState::Completed, None)
         .await
         .unwrap_err();
     assert!(matches!(err, StoreError::IllegalTransition(_)));

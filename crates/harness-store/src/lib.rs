@@ -23,6 +23,8 @@ pub enum StoreError {
     AlreadyExists,
     #[error("revision conflict: expected {expected}, actual {actual}")]
     RevisionConflict { expected: u64, actual: u64 },
+    #[error("idempotency key already used by a different request")]
+    IdempotencyKeyReused,
     #[error("{0}")]
     IllegalTransition(harness_core::state::TransitionError),
     #[error("invalid domain value: {0}")]

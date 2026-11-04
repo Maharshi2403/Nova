@@ -19,14 +19,42 @@ pub trait Repository {
     /// exist in the same run.
     async fn insert_task(&self, task: &Task) -> Result<(), StoreError>;
     async fn get_task(&self, run_id: &RunId, id: &TaskId) -> Result<Task, StoreError>;
-    /// Validated compare-and-set state change; returns the updated task.
+    /// Validated compare-and-set state change. The state update and its audit event are
+    /// committed in one transaction. With an `idempotency_key`, replaying the same request
+    /// returns the current task with `replayed = true` and writes nothing.
     async fn transition_task(
         &self,
         run_id: &RunId,
         id: &TaskId,
         expected_revision: u64,
         to: TaskState,
-    ) -> Result<Task, StoreError>;
+        idempotency_key: Option<&str>,
+    ) -> Result<Transitioned, StoreError>;
+    /// Events of a run with `sequence > after`, ascending, at most `limit`.
+    async fn list_events(
+        &self,
+        run_id: &RunId,
+        after: i64,
+        limit: u32,
+    ) -> Result<Vec<EventRecord>, StoreError>;
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Transitioned {
+    pub task: Task,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventRecord {
+    pub sequence: i64,
+    pub run_id: String,
+    pub task_id: Option<String>,
+    pub kind: String,
+    pub from_state: Option<String>,
+    pub to_state: Option<String>,
+    pub attempt: Option<i64>,
+    pub idempotency_key: Option<String>,
 }
 
 fn enum_to_text<T: serde::Serialize>(v: &T) -> Result<String, StoreError> {
@@ -173,7 +201,25 @@ impl Repository for Store {
         id: &TaskId,
         expected_revision: u64,
         to: TaskState,
-    ) -> Result<Task, StoreError> {
+        idempotency_key: Option<&str>,
+    ) -> Result<Transitioned, StoreError> {
+        let to_text = enum_to_text(&to)?;
+        if let Some(key) = idempotency_key
+            && let Some(prior) = find_event_by_key(self, key).await?
+        {
+            let same = prior.run_id == run_id.as_str()
+                && prior.task_id.as_deref() == Some(id.as_str())
+                && prior.to_state.as_deref() == Some(to_text.as_str());
+            if !same {
+                return Err(StoreError::IdempotencyKeyReused);
+            }
+            let task = self.get_task(run_id, id).await?;
+            return Ok(Transitioned {
+                task,
+                replayed: true,
+            });
+        }
+
         let current = self.get_task(run_id, id).await?;
         if current.revision != expected_revision {
             return Err(StoreError::RevisionConflict {
@@ -182,17 +228,21 @@ impl Repository for Store {
             });
         }
         state::transition(current.state, to)?;
+
+        // State change and audit event commit together or not at all.
+        let mut tx = self.pool().begin().await?;
         let result = sqlx::query(
             "UPDATE tasks SET state = ?, revision = revision + 1 \
              WHERE run_id = ? AND id = ? AND revision = ?",
         )
-        .bind(enum_to_text(&to)?)
+        .bind(&to_text)
         .bind(run_id.as_str())
         .bind(id.as_str())
         .bind(to_i64(expected_revision)?)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await?;
         if result.rows_affected() == 0 {
+            tx.rollback().await?;
             // Lost a race between the read above and this write.
             let actual = self.get_task(run_id, id).await?.revision;
             return Err(StoreError::RevisionConflict {
@@ -200,8 +250,79 @@ impl Repository for Store {
                 actual,
             });
         }
-        self.get_task(run_id, id).await
+        let inserted = sqlx::query(
+            "INSERT INTO events (run_id, task_id, kind, from_state, to_state, attempt, \
+             idempotency_key) VALUES (?, ?, 'task.transition', ?, ?, ?, ?)",
+        )
+        .bind(run_id.as_str())
+        .bind(id.as_str())
+        .bind(enum_to_text(&current.state)?)
+        .bind(&to_text)
+        .bind(i64::from(current.attempt))
+        .bind(idempotency_key)
+        .execute(&mut *tx)
+        .await;
+        match inserted {
+            Ok(_) => {}
+            Err(e) => {
+                tx.rollback().await?;
+                return Err(match StoreError::from_insert(e) {
+                    // Another request with the same key won the race.
+                    StoreError::AlreadyExists => StoreError::IdempotencyKeyReused,
+                    other => other,
+                });
+            }
+        }
+        tx.commit().await?;
+        let task = self.get_task(run_id, id).await?;
+        Ok(Transitioned {
+            task,
+            replayed: false,
+        })
     }
+
+    async fn list_events(
+        &self,
+        run_id: &RunId,
+        after: i64,
+        limit: u32,
+    ) -> Result<Vec<EventRecord>, StoreError> {
+        let rows = sqlx::query(
+            "SELECT sequence, run_id, task_id, kind, from_state, to_state, attempt, \
+             idempotency_key FROM events WHERE run_id = ? AND sequence > ? \
+             ORDER BY sequence ASC LIMIT ?",
+        )
+        .bind(run_id.as_str())
+        .bind(after)
+        .bind(i64::from(limit.min(1000)))
+        .fetch_all(self.pool())
+        .await?;
+        rows.iter().map(row_to_event).collect()
+    }
+}
+
+fn row_to_event(row: &SqliteRow) -> Result<EventRecord, StoreError> {
+    Ok(EventRecord {
+        sequence: row.try_get("sequence")?,
+        run_id: row.try_get("run_id")?,
+        task_id: row.try_get("task_id")?,
+        kind: row.try_get("kind")?,
+        from_state: row.try_get("from_state")?,
+        to_state: row.try_get("to_state")?,
+        attempt: row.try_get("attempt")?,
+        idempotency_key: row.try_get("idempotency_key")?,
+    })
+}
+
+async fn find_event_by_key(store: &Store, key: &str) -> Result<Option<EventRecord>, StoreError> {
+    let row = sqlx::query(
+        "SELECT sequence, run_id, task_id, kind, from_state, to_state, attempt, \
+         idempotency_key FROM events WHERE idempotency_key = ?",
+    )
+    .bind(key)
+    .fetch_optional(store.pool())
+    .await?;
+    row.as_ref().map(row_to_event).transpose()
 }
 
 impl From<TransitionError> for StoreError {
