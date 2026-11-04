@@ -1,0 +1,33 @@
+# Example configuration (all values shown are the safe defaults). Precedence:
+# CLI flags > HARNESS_* environment variables > this file > built-in defaults.
+protocol_version: "1.0"
+mode: trusted-local  # not a security sandbox
+provider: mock
+worker:
+  default_concurrency: 2
+  maximum_concurrency: 4
+  heartbeat_interval_seconds: 5
+  heartbeat_timeout_seconds: 20
+  default_timeout_seconds: 180
+  max_tool_calls: 30
+  max_ipc_message_bytes: 1048576
+routing:
+  default_low_model: mock-coder
+  default_medium_model: mock-coder
+  default_high_model: mock-coder
+budget:
+  max_task_usd: 0.50
+  max_run_usd: 5.00
+  max_daily_usd: 10.00
+  max_output_tokens: 3000
+execution:
+  allow_network: false
+  allow_auto_push: false
+  require_approval_for_commands: true
+  require_approved_plan: true
+  allowed_test_commands: []  # set per trusted project
+security:
+  loopback_only: true
+  log_raw_prompts: false
+  log_raw_secrets: false
+  allow_untrusted_without_sandbox: false

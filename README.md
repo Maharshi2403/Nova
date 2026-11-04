@@ -20,7 +20,12 @@ scripts/              check.ps1 / check.sh quality gates
 .github/workflows/    CI (offline, mock provider)
 ```
 
-Planned (later tickets): `crates/harness-{store,runtime,git,api}`, `config/`, `docs/adr/`.
+config/               example configuration (safe defaults: provider=mock, concurrency=2)
+docs/adr/             architecture decision records (ADR-001..008, stubs)
+
+Configuration precedence: CLI flags > `HARNESS_*` env vars > config file > built-in defaults.
+
+Planned (later tickets): `crates/harness-{store,runtime,git,api}`.
 
 ## Develop
 
