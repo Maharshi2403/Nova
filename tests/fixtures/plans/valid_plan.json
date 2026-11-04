@@ -1,0 +1,43 @@
+{
+  "schema_version": "1.0",
+  "project_id": "proj-demo",
+  "idea": "Build a small orders API with input validation",
+  "assumptions": ["Python 3.12 is available"],
+  "requirements": ["Reject orders whose quantity is not positive", "Return JSON errors"],
+  "architecture": {
+    "recommended": "A single FastAPI module with a pydantic request model",
+    "alternatives": ["Flask with manual validation"],
+    "risks": ["Validation errors may leak internal field names"]
+  },
+  "tasks": [
+    {
+      "id": "task-model",
+      "title": "Add order request model",
+      "description": "Create the pydantic Order model with a positive quantity constraint.",
+      "complexity": "low",
+      "risk": "low",
+      "agent_priority": 80,
+      "manual_priority": null,
+      "dependencies": [],
+      "candidate_paths": ["src/orders/models.py"],
+      "acceptance": [{"kind": "test", "command": ["python", "-m", "pytest", "tests/test_models.py"]}],
+      "limits": {"max_tool_calls": 20, "max_output_tokens": 3000, "timeout_seconds": 180, "cost_cap_usd": 0.2}
+    },
+    {
+      "id": "task-endpoint",
+      "title": "Add order endpoint",
+      "description": "Implement POST /orders returning 400 when quantity is not positive.",
+      "complexity": "medium",
+      "risk": "low",
+      "agent_priority": 60,
+      "manual_priority": null,
+      "dependencies": ["task-model"],
+      "candidate_paths": ["src/orders/api.py"],
+      "acceptance": [
+        {"kind": "test", "command": ["python", "-m", "pytest", "tests/test_api.py"]},
+        {"kind": "assertion", "description": "quantity <= 0 yields HTTP 400"}
+      ],
+      "limits": {"max_tool_calls": 30, "max_output_tokens": 4000, "timeout_seconds": 300, "cost_cap_usd": 0.5}
+    }
+  ]
+}
