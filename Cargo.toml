@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["apps/cli", "apps/daemon", "crates/harness-core", "crates/harness-store"]
+members = ["apps/cli", "apps/daemon", "crates/harness-core", "crates/harness-store", "crates/harness-runtime"]
 
 [workspace.package]
 edition = "2024"
