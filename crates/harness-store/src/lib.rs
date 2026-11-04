@@ -25,6 +25,8 @@ pub enum StoreError {
     RevisionConflict { expected: u64, actual: u64 },
     #[error("idempotency key already used by a different request")]
     IdempotencyKeyReused,
+    #[error("task in state {0:?} cannot be reprioritized")]
+    NotReprioritizable(harness_core::domain::TaskState),
     #[error("{0}")]
     IllegalTransition(harness_core::state::TransitionError),
     #[error("invalid domain value: {0}")]

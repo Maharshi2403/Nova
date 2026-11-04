@@ -1,7 +1,7 @@
 //! Repository for projects, runs and tasks. No SQL escapes this crate.
 
 use harness_core::domain::{
-    Project, ProjectId, Run, RunId, RunState, Task, TaskId, TaskSpec, TaskState,
+    Priority, Project, ProjectId, Run, RunId, RunState, Task, TaskId, TaskSpec, TaskState,
 };
 use harness_core::state::{self, TransitionError};
 use sqlx::Row;
@@ -19,6 +19,17 @@ pub trait Repository {
     /// exist in the same run.
     async fn insert_task(&self, task: &Task) -> Result<(), StoreError>;
     async fn get_task(&self, run_id: &RunId, id: &TaskId) -> Result<Task, StoreError>;
+    /// All tasks of a run in creation order (the FIFO tie-break order).
+    async fn list_tasks(&self, run_id: &RunId) -> Result<Vec<Task>, StoreError>;
+    /// Revision compare-and-set priority change. Only queued tasks (never leased or
+    /// running ones) can be reprioritized, so a running task is never preempted.
+    async fn set_priority(
+        &self,
+        run_id: &RunId,
+        id: &TaskId,
+        expected_revision: u64,
+        update: PriorityUpdate,
+    ) -> Result<Task, StoreError>;
     /// Validated compare-and-set state change. The state update and its audit event are
     /// committed in one transaction. With an `idempotency_key`, replaying the same request
     /// returns the current task with `replayed = true` and writes nothing.
@@ -37,6 +48,13 @@ pub trait Repository {
         after: i64,
         limit: u32,
     ) -> Result<Vec<EventRecord>, StoreError>;
+}
+
+/// `Manual(None)` clears the manual override.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PriorityUpdate {
+    Manual(Option<Priority>),
+    Agent(Priority),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -80,8 +98,17 @@ fn to_u64(v: i64) -> Result<u64, StoreError> {
     u64::try_from(v).map_err(|_| StoreError::Corrupt("negative integer in database".into()))
 }
 
+const TASK_COLUMNS: &str =
+    "run_id, state, revision, attempt, spec_json, agent_priority, manual_priority";
+
 fn row_to_task(row: &SqliteRow) -> Result<Task, StoreError> {
-    let spec: TaskSpec = serde_json::from_str(row.try_get::<&str, _>("spec_json")?)?;
+    let mut spec: TaskSpec = serde_json::from_str(row.try_get::<&str, _>("spec_json")?)?;
+    // The priority columns are the source of truth; spec_json keeps the original proposal.
+    spec.agent_priority = Priority::new(row.try_get("agent_priority")?)?;
+    spec.manual_priority = row
+        .try_get::<Option<i64>, _>("manual_priority")?
+        .map(Priority::new)
+        .transpose()?;
     let attempt = u32::try_from(row.try_get::<i64, _>("attempt")?)
         .map_err(|_| StoreError::Corrupt("attempt out of range".into()))?;
     Ok(Task {
@@ -183,16 +210,89 @@ impl Repository for Store {
     }
 
     async fn get_task(&self, run_id: &RunId, id: &TaskId) -> Result<Task, StoreError> {
-        let row = sqlx::query(
-            "SELECT run_id, state, revision, attempt, spec_json FROM tasks \
-             WHERE run_id = ? AND id = ?",
-        )
+        let row = sqlx::query(&format!(
+            "SELECT {TASK_COLUMNS} FROM tasks WHERE run_id = ? AND id = ?"
+        ))
         .bind(run_id.as_str())
         .bind(id.as_str())
         .fetch_optional(self.pool())
         .await?
         .ok_or(StoreError::NotFound("task"))?;
         row_to_task(&row)
+    }
+
+    async fn list_tasks(&self, run_id: &RunId) -> Result<Vec<Task>, StoreError> {
+        let rows = sqlx::query(&format!(
+            "SELECT {TASK_COLUMNS} FROM tasks WHERE run_id = ? ORDER BY rowid ASC"
+        ))
+        .bind(run_id.as_str())
+        .fetch_all(self.pool())
+        .await?;
+        rows.iter().map(row_to_task).collect()
+    }
+
+    async fn set_priority(
+        &self,
+        run_id: &RunId,
+        id: &TaskId,
+        expected_revision: u64,
+        update: PriorityUpdate,
+    ) -> Result<Task, StoreError> {
+        let current = self.get_task(run_id, id).await?;
+        if !matches!(
+            current.state,
+            TaskState::Proposed | TaskState::Pending | TaskState::Ready | TaskState::RetryWait
+        ) {
+            return Err(StoreError::NotReprioritizable(current.state));
+        }
+        let (column, value, kind) = match update {
+            PriorityUpdate::Manual(p) => (
+                "manual_priority",
+                p.map(|p| i64::from(p.get())),
+                "task.priority.manual",
+            ),
+            PriorityUpdate::Agent(p) => (
+                "agent_priority",
+                Some(i64::from(p.get())),
+                "task.priority.agent",
+            ),
+        };
+        let mut tx = self.pool().begin().await?;
+        let result = sqlx::query(&format!(
+            "UPDATE tasks SET {column} = ?, revision = revision + 1 \
+             WHERE run_id = ? AND id = ? AND revision = ? \
+             AND state IN ('proposed', 'pending', 'ready', 'retry_wait')"
+        ))
+        .bind(value)
+        .bind(run_id.as_str())
+        .bind(id.as_str())
+        .bind(to_i64(expected_revision)?)
+        .execute(&mut *tx)
+        .await?;
+        if result.rows_affected() == 0 {
+            tx.rollback().await?;
+            let now = self.get_task(run_id, id).await?;
+            if now.revision == expected_revision {
+                return Err(StoreError::NotReprioritizable(now.state));
+            }
+            return Err(StoreError::RevisionConflict {
+                expected: expected_revision,
+                actual: now.revision,
+            });
+        }
+        sqlx::query(
+            "INSERT INTO events (run_id, task_id, kind, attempt, payload_json) \
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(run_id.as_str())
+        .bind(id.as_str())
+        .bind(kind)
+        .bind(i64::from(current.attempt))
+        .bind(serde_json::json!({ "value": value }).to_string())
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        self.get_task(run_id, id).await
     }
 
     async fn transition_task(

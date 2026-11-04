@@ -8,3 +8,9 @@ publish.workspace = true
 
 [dependencies]
 harness-core = { path = "../harness-core" }
+
+[dev-dependencies]
+harness-store = { path = "../harness-store" }
+serde_json = "1"
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

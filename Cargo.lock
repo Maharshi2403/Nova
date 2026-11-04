@@ -587,6 +587,10 @@ name = "harness-runtime"
 version = "0.1.0"
 dependencies = [
  "harness-core",
+ "harness-store",
+ "serde_json",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
