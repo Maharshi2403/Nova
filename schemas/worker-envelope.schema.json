@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ai-harness.invalid/schemas/v1/worker-envelope.schema.json",
+  "title": "WorkerEnvelopeV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol_version", "kind", "message_id", "correlation_id", "run_id", "task_id", "attempt", "timestamp", "payload"],
+  "properties": {
+    "protocol_version": {"const": "1.0"},
+    "kind": {"enum": ["hello", "hello_ack", "start_task", "progress", "tool_request", "tool_response", "usage", "subtask_request", "plan_proposal", "review_recommendation", "completed", "failed", "heartbeat", "cancel"]},
+    "message_id": {"type": "string", "format": "uuid"},
+    "correlation_id": {"type": ["string", "null"], "minLength": 1},
+    "run_id": {"type": ["string", "null"], "minLength": 1},
+    "task_id": {"type": ["string", "null"], "minLength": 1},
+    "attempt": {"type": ["integer", "null"], "minimum": 1},
+    "timestamp": {"type": "string", "format": "date-time"},
+    "payload": {"type": "object", "maxProperties": 100}
+  },
+  "allOf": [
+    {"if": {"properties": {"kind": {"const": "tool_response"}}}, "then": {"required": ["correlation_id"], "properties": {"correlation_id": {"type": "string", "minLength": 1}}}},
+    {"if": {"properties": {"kind": {"enum": ["start_task", "tool_request", "tool_response", "usage", "completed", "failed", "progress", "subtask_request"]}}},
+      "then": {"properties": {"run_id": {"type": "string", "minLength": 1}, "task_id": {"type": "string", "minLength": 1}, "attempt": {"type": "integer", "minimum": 1}}}}
+  ]
+}

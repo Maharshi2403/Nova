@@ -12,10 +12,15 @@ Cargo.toml            workspace
 rust-toolchain.toml   pinned toolchain
 apps/cli/             bin `harness` (package harness-cli)
 apps/daemon/          bin `harnessd` (package harness-daemon)
+crates/harness-core/  domain types and versioned contracts (protocol envelope)
+intelligence/         Python package `harness_ai` (uv)
+schemas/              contract-first JSON Schemas (source of truth for IPC/plan shapes)
+tests/fixtures/       cross-language fixtures (valid/ and invalid/) used by Rust and Python tests
+scripts/              check.ps1 / check.sh quality gates
+.github/workflows/    CI (offline, mock provider)
 ```
 
-Planned (later tickets): `crates/harness-{core,store,runtime,git,api}`, `intelligence/`
-(Python, uv), `schemas/`, `config/`, `tests/`, `docs/adr/`, `.github/workflows/`.
+Planned (later tickets): `crates/harness-{store,runtime,git,api}`, `config/`, `docs/adr/`.
 
 ## Develop
 

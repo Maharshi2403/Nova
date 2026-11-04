@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ai-harness.invalid/schemas/v1/priority-update.schema.json",
+  "title": "PriorityUpdateV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["priority", "expected_revision"],
+  "properties": {
+    "priority": {"oneOf": [{"type": "integer", "minimum": 0, "maximum": 100}, {"type": "null"}]},
+    "expected_revision": {"type": "integer", "minimum": 0}
+  }
+}

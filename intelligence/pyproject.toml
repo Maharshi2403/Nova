@@ -4,16 +4,20 @@ version = "0.1.0"
 description = "AI Harness intelligence layer: proposes actions and runs constrained LLM loops."
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "pydantic>=2",
+]
 
 [project.scripts]
 harness-ai = "harness_ai.__main__:main"
 
 [dependency-groups]
 dev = [
+    "jsonschema>=4.26.0",
     "mypy>=2.4.1",
     "pytest>=8",
     "ruff>=0.17.3",
+    "types-jsonschema>=4.26.0.20261006",
 ]
 
 [build-system]
