@@ -7,6 +7,8 @@ use sqlx::SqlitePool;
 use sqlx::migrate::Migrator;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 
+pub mod repository;
+
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Debug, thiserror::Error)]
@@ -15,6 +17,30 @@ pub enum StoreError {
     Db(#[from] sqlx::Error),
     #[error("migration error: {0}")]
     Migrate(#[from] sqlx::migrate::MigrateError),
+    #[error("{0} not found")]
+    NotFound(&'static str),
+    #[error("already exists")]
+    AlreadyExists,
+    #[error("revision conflict: expected {expected}, actual {actual}")]
+    RevisionConflict { expected: u64, actual: u64 },
+    #[error("{0}")]
+    IllegalTransition(harness_core::state::TransitionError),
+    #[error("invalid domain value: {0}")]
+    Domain(#[from] harness_core::domain::DomainError),
+    #[error("serialization error: {0}")]
+    Serde(#[from] serde_json::Error),
+    #[error("corrupt stored data: {0}")]
+    Corrupt(String),
+}
+
+impl StoreError {
+    /// Map unique-constraint violations to `AlreadyExists`, keep everything else as-is.
+    pub(crate) fn from_insert(e: sqlx::Error) -> Self {
+        match &e {
+            sqlx::Error::Database(d) if d.is_unique_violation() => Self::AlreadyExists,
+            _ => Self::Db(e),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
