@@ -75,7 +75,7 @@ pub struct EventRecord {
     pub idempotency_key: Option<String>,
 }
 
-fn enum_to_text<T: serde::Serialize>(v: &T) -> Result<String, StoreError> {
+pub(crate) fn enum_to_text<T: serde::Serialize>(v: &T) -> Result<String, StoreError> {
     match serde_json::to_value(v)? {
         serde_json::Value::String(s) => Ok(s),
         _ => Err(StoreError::Corrupt(
@@ -84,17 +84,17 @@ fn enum_to_text<T: serde::Serialize>(v: &T) -> Result<String, StoreError> {
     }
 }
 
-fn enum_from_text<T: serde::de::DeserializeOwned>(s: &str) -> Result<T, StoreError> {
+pub(crate) fn enum_from_text<T: serde::de::DeserializeOwned>(s: &str) -> Result<T, StoreError> {
     Ok(serde_json::from_value(serde_json::Value::String(
         s.to_string(),
     ))?)
 }
 
-fn to_i64(v: u64) -> Result<i64, StoreError> {
+pub(crate) fn to_i64(v: u64) -> Result<i64, StoreError> {
     i64::try_from(v).map_err(|_| StoreError::Corrupt("integer out of range".into()))
 }
 
-fn to_u64(v: i64) -> Result<u64, StoreError> {
+pub(crate) fn to_u64(v: i64) -> Result<u64, StoreError> {
     u64::try_from(v).map_err(|_| StoreError::Corrupt("negative integer in database".into()))
 }
 

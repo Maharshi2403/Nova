@@ -26,7 +26,14 @@ async fn fresh_db_migrates() {
     let (_dir, store) = fresh().await;
     assert_eq!(
         table_names(&store).await,
-        ["events", "projects", "runs", "task_dependencies", "tasks"]
+        [
+            "events",
+            "leases",
+            "projects",
+            "runs",
+            "task_dependencies",
+            "tasks"
+        ]
     );
     let mode: String = sqlx::query_scalar("PRAGMA journal_mode")
         .fetch_one(store.pool())
