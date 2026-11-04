@@ -24,3 +24,13 @@ cargo test --workspace
 cargo run -p harness-cli -- --help
 cargo run -p harness-daemon -- --help
 ```
+
+## Quality checks
+
+One command per platform runs `cargo fmt --check`, `cargo clippy -D warnings`,
+`ruff check`, `ruff format --check` and strict `mypy`:
+
+```powershell
+./scripts/check.ps1     # Windows
+./scripts/check.sh      # macOS / Linux
+```
