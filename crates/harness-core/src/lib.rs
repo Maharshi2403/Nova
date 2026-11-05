@@ -9,4 +9,5 @@ pub mod messages;
 pub mod plan;
 pub mod protocol;
 pub mod registry;
+pub mod routing;
 pub mod state;
