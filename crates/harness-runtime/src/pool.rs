@@ -5,7 +5,9 @@ use harness_store::budgets::BudgetRequest;
 use harness_store::leases::{LeaseRepository, LeaseRequest};
 use harness_store::repository::Repository;
 use harness_store::{Store, StoreError};
+use std::collections::HashMap;
 use std::future::Future;
+use tokio::sync::watch;
 use tokio::task::JoinSet;
 use uuid::Uuid;
 
@@ -13,6 +15,7 @@ pub struct WorkerPool {
     capacity: usize,
     locks: ResourceLocks,
     jobs: JoinSet<Result<(), String>>,
+    cancellations: HashMap<String, (RunId, watch::Sender<bool>)>,
 }
 
 impl WorkerPool {
@@ -32,10 +35,20 @@ impl WorkerPool {
             capacity,
             locks,
             jobs: JoinSet::new(),
+            cancellations: HashMap::new(),
         })
     }
     pub fn active(&self) -> usize {
         self.jobs.len()
+    }
+    pub fn cancel_run(&mut self, run: &RunId) {
+        self.cancellations
+            .retain(|_, (_, sender)| !sender.is_closed());
+        for (id, sender) in self.cancellations.values() {
+            if id == run {
+                let _ = sender.send(true);
+            }
+        }
     }
     pub async fn join_next(&mut self) -> Option<Result<(), String>> {
         self.jobs
@@ -54,7 +67,7 @@ impl WorkerPool {
         execute: F,
     ) -> Result<usize, StoreError>
     where
-        F: Fn(Task, String) -> Fut,
+        F: Fn(Task, String, watch::Receiver<bool>) -> Fut,
         Fut: Future<Output = Result<(), String>> + Send + 'static,
     {
         let ready = tick(store, run, now).await?;
@@ -89,7 +102,12 @@ impl WorkerPool {
             };
             let task_run = leased.run_id.clone();
             let task_id = leased.id().clone();
-            let future = execute(leased, lease_id.clone());
+            let (sender, receiver) = watch::channel(false);
+            self.cancellations
+                .retain(|_, (_, sender)| !sender.is_closed());
+            self.cancellations
+                .insert(lease_id.clone(), (run.clone(), sender));
+            let future = execute(leased, lease_id.clone(), receiver);
             let store = store.clone();
             self.jobs.spawn(async move {
                 let _guard = guard;

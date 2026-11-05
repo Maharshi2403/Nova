@@ -88,6 +88,8 @@ impl Worker {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        #[cfg(unix)]
+        cmd.process_group(0);
         for name in DEFAULT_ENV_ALLOWLIST {
             if let Some(v) = std::env::var_os(name) {
                 cmd.env(name, v);
@@ -181,7 +183,7 @@ impl Worker {
 
     pub async fn kill(&mut self) {
         self.killed = true;
-        let _ = self.child.kill().await;
+        crate::broker::command::kill_tree(&mut self.child).await;
     }
 
     /// Close stdin so a well-behaved worker exits, wait up to `grace`, then kill.
@@ -210,8 +212,12 @@ impl Worker {
 
     async fn finish(&mut self) -> ExitReport {
         let status = self.child.wait().await.ok();
-        if let Some(task) = self.stderr_task.take() {
-            let _ = task.await;
+        if let Some(mut task) = self.stderr_task.take()
+            && tokio::time::timeout(Duration::from_millis(250), &mut task)
+                .await
+                .is_err()
+        {
+            task.abort();
         }
         let bytes = self.stderr.lock().expect("stderr buffer poisoned").clone();
         ExitReport {

@@ -1,6 +1,6 @@
 # Implementation progress
 
-Latest completed ticket: H-050 — restart reconciliation.
+Latest completed ticket: H-051 — cancellation and process cleanup.
 Prior implementation: H-001..H-044 appear in Git history; their original platform
 evidence has not been independently audited. Current stage: G5.
 
@@ -81,6 +81,16 @@ recording the existing SHA. No second commit is created. Tests: runtime `committ
 Recovery intentionally requires inspection of ambiguous/orphan attempts; it does
 not kill PIDs that may have been reused or silently replay side effects.
 
-Next unblocked ticket: H-051 — cancellation and process cleanup.
+## H-051 verification
+
+Worker pool exposes per-run cancellation signals; pause remains dispatch-only.
+Unix workers have separate process groups and timeout/kill uses the command
+broker's tree termination path (Windows taskkill /T /F). Stderr cleanup is bounded
+even when a descendant holds the pipe. Closed cancellation channels cannot starve
+protocol reads. Worker (7), pool (1), supervisor (12) tests PASS; workspace all-target
+Clippy and formatting PASS. Windows tree termination requires Windows CI; no Job
+Object guarantee is claimed. Uncommitted worktrees are preserved.
+
+Next unblocked ticket: H-052 — replayable bounded progress events.
 The original three untracked handoff documents are intentionally excluded from
 the feature commit and left unchanged.

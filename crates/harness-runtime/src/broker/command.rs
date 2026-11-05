@@ -103,7 +103,7 @@ async fn capture<R: AsyncRead + Unpin>(mut reader: R, cap: usize) -> (Vec<u8>, b
 }
 
 /// Terminate the child and everything it spawned.
-async fn kill_tree(child: &mut Child) {
+pub(crate) async fn kill_tree(child: &mut Child) {
     if let Some(pid) = child.id() {
         #[cfg(windows)]
         let _ = Command::new("taskkill")

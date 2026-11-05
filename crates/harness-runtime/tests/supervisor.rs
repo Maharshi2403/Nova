@@ -9,6 +9,15 @@ use tokio::sync::watch;
 
 const T: Duration = Duration::from_secs(30);
 
+#[tokio::test]
+async fn closed_cancellation_channel_does_not_starve_worker() {
+    let (tx, rx) = watch::channel(false);
+    drop(tx);
+    let (result, worker) = run("write_frame(out, frame('completed', {'summary':'done', 'changed_paths':[], 'claimed_tests':[], 'subtask_requests':[]}))", limits(), rx).await;
+    assert!(matches!(result, Ok(Outcome::Completed(_))));
+    worker.shutdown(Duration::from_millis(200)).await;
+}
+
 fn python() -> PathBuf {
     if let Some(p) = std::env::var_os("HARNESS_PYTHON") {
         return p.into();

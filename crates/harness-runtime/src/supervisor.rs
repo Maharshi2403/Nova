@@ -137,13 +137,15 @@ async fn drive<B: ToolBroker>(
         .await
         .map_err(SuperviseError::Worker)?;
     let mut received = 0u32;
+    let mut cancel_open = true;
     loop {
         if *cancel.borrow() {
             return cancelled(worker).await;
         }
         let frame = tokio::select! {
             biased;
-            changed = cancel.changed() => {
+            changed = cancel.changed(), if cancel_open => {
+                if changed.is_err() { cancel_open = false; }
                 if changed.is_ok() && *cancel.borrow() {
                     return cancelled(worker).await;
                 }
