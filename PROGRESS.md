@@ -438,3 +438,11 @@ Operator preview setup was adopted into the permanent user Nova directory after
 confirming the main state had zero projects/runs/providers and both services were
 idle. The previous empty state was retained as a backup; a compatibility symlink
 keeps the preview window connected. No provider key was printed or placed in argv.
+
+H-068 final artifact acceptance: PASS. Extracted desktop ZIP/checksum/path checks,
+isolated bundled intelligence import, rejection before approval, three real mock
+worker tasks with verifier exit 0 and integration SHAs, and clean fixture checkout
+all passed. Nova.app installed at ~/Applications/Nova.app; ~/.local/bin/nova matches
+its bundled CLI hash. Native installed overview and guided task-plan sheet inspected;
+service connected and the operator's provider connection retained. `nova ui --print-path`
+resolves the installed app from a normal login shell. No paid model generation used.
