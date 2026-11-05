@@ -28,6 +28,7 @@ async fn fresh_db_migrates() {
         table_names(&store).await,
         [
             "events",
+            "git_artifacts",
             "leases",
             "plans",
             "projects",
