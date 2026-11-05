@@ -5,6 +5,8 @@ description = "AI Harness intelligence layer: proposes actions and runs constrai
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "httpx>=0.28,<1",
+    "jsonschema>=4.26.0",
     "pydantic>=2",
 ]
 
