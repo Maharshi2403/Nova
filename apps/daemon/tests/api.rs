@@ -596,3 +596,78 @@ async fn trusted_project_import_preserves_dirty_files_but_execution_gate_stays_c
         Err(harness_runtime::git::RepoError::Dirty { .. })
     ));
 }
+
+#[tokio::test]
+async fn project_trust_is_explicit_and_removal_never_deletes_files_or_runs() {
+    let (_data, store, repo) = fixture().await;
+    let project = Project::new(
+        ProjectId::new("trust-project").unwrap(),
+        "Trust fixture",
+        repo.path().to_str().unwrap(),
+    )
+    .unwrap();
+    store.create_project(&project).await.unwrap();
+    let app = api_router(TOKEN.into(), store.clone());
+    let path = "/v1/projects/trust-project/trust";
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post(path)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"trusted_local":true}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert!(!store.project_is_trusted(&project.id).await.unwrap());
+    std::fs::write(repo.path().join("unfinished.txt"), "keep").unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            auth(Request::post(path))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"trusted_local":true}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(store.project_is_trusted(&project.id).await.unwrap());
+    let run = Run::new(RunId::new("keep-run").unwrap(), project.id.clone());
+    store.create_run(&run).await.unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            auth(Request::delete("/v1/projects/trust-project"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    assert!(store.get_run(&run.id).await.is_ok());
+    assert!(store.project_is_trusted(&project.id).await.unwrap());
+    let empty = Project::new(
+        ProjectId::new("empty").unwrap(),
+        "Empty",
+        repo.path().to_str().unwrap(),
+    )
+    .unwrap();
+    store.create_project(&empty).await.unwrap();
+    store.set_project_trust(&empty.id, true).await.unwrap();
+    let response = app
+        .oneshot(
+            auth(Request::delete("/v1/projects/empty"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(store.get_project(&empty.id).await.is_err());
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("unfinished.txt")).unwrap(),
+        "keep"
+    );
+}

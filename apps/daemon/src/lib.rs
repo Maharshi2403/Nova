@@ -197,6 +197,11 @@ fn api_router_with_lifecycle(
             .route("/tasks/{run_id}/{task_id}/evidence", get(task_evidence))
             .route("/shutdown", post(shutdown_service))
             .route("/projects", post(create_project))
+            .route("/projects/{project_id}/trust", post(update_project_trust))
+            .route(
+                "/projects/{project_id}",
+                axum::routing::delete(remove_project),
+            )
             .route("/plans", post(propose_plan))
             .route("/plans/{run_id}/{version}", get(get_plan))
             .route("/plans/{run_id}/{version}/approve", post(approve_plan))
@@ -524,6 +529,68 @@ fn api_error(
             message: harness_core::redaction::redact(&message.into()),
         }),
     )
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TrustRequest {
+    trusted_local: bool,
+}
+async fn update_project_trust(
+    State(state): State<ApiState>,
+    RoutePath(id): RoutePath<String>,
+    Json(request): Json<TrustRequest>,
+) -> ApiResult<serde_json::Value> {
+    let id = ProjectId::new(id).map_err(|e| {
+        api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_project",
+            e.to_string(),
+        )
+    })?;
+    let project = state.store.get_project(&id).await.map_err(store_error)?;
+    if request.trusted_local {
+        inspect_repo(&project.repo_path).await.map_err(|e| {
+            api_error(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "invalid_repository",
+                e.to_string(),
+            )
+        })?;
+    }
+    state
+        .store
+        .set_project_trust(&id, request.trusted_local)
+        .await
+        .map_err(store_error)?;
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({"trusted_local":request.trusted_local})),
+    ))
+}
+async fn remove_project(
+    State(state): State<ApiState>,
+    RoutePath(id): RoutePath<String>,
+) -> ApiResult<serde_json::Value> {
+    let id = ProjectId::new(id).map_err(|e| {
+        api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_project",
+            e.to_string(),
+        )
+    })?;
+    state.store.remove_empty_project(&id).await.map_err(|e| {
+        api_error(
+            if matches!(e, harness_store::StoreError::NotFound(_)) {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::CONFLICT
+            },
+            "project_not_removed",
+            e.to_string(),
+        )
+    })?;
+    Ok((StatusCode::OK, Json(serde_json::json!({"removed":id}))))
 }
 
 async fn create_project(

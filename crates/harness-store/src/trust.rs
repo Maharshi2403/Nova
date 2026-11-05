@@ -19,3 +19,32 @@ impl Store {
         Ok(trusted.unwrap_or(false))
     }
 }
+
+impl Store {
+    /// Remove only registration metadata for a project with no runs. Files are untouched.
+    pub async fn remove_empty_project(&self, project: &ProjectId) -> Result<(), StoreError> {
+        let mut tx = self.pool().begin().await?;
+        let runs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM runs WHERE project_id=?")
+            .bind(project.as_str())
+            .fetch_one(&mut *tx)
+            .await?;
+        if runs != 0 {
+            return Err(StoreError::PlanNotDecidable(
+                "projects with runs cannot be removed",
+            ));
+        }
+        sqlx::query("DELETE FROM project_trust WHERE project_id=?")
+            .bind(project.as_str())
+            .execute(&mut *tx)
+            .await?;
+        let deleted = sqlx::query("DELETE FROM projects WHERE id=?")
+            .bind(project.as_str())
+            .execute(&mut *tx)
+            .await?;
+        if deleted.rows_affected() == 0 {
+            return Err(StoreError::NotFound("project"));
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+}

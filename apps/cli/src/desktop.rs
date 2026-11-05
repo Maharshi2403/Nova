@@ -171,7 +171,7 @@ fn handle(root: &Path, request: Request) -> Result<Value, CliError> {
             None,
         ),
         Request::Api { method, path, body } => {
-            if !["GET", "POST", "PATCH"].contains(&method.as_str())
+            if !["GET", "POST", "PATCH", "DELETE"].contains(&method.as_str())
                 || !safe_path(&path)
                 || path.starts_with("/v1/shutdown")
             {

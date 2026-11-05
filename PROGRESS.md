@@ -446,3 +446,15 @@ all passed. Nova.app installed at ~/Applications/Nova.app; ~/.local/bin/nova mat
 its bundled CLI hash. Native installed overview and guided task-plan sheet inspected;
 service connected and the operator's provider connection retained. `nova ui --print-path`
 resolves the installed app from a normal login shell. No paid model generation used.
+
+## H-069 — actionable project trust and empty-project cleanup
+
+Added explicit authenticated project trust changes and removal of registration
+metadata only for projects with no runs. Trust enable inspects the Git root and
+permits unfinished files; execution keeps its separate trust/clean-base checks.
+Removal is transactional, preserves repositories on disk, and rejects projects
+with runs. Desktop stdin transport supports the corresponding DELETE request.
+Validation: daemon API 16 tests passed; workspace Clippy passed. New regression
+covers unauthenticated trust denial, explicit enable, dirty-file preservation,
+run-preserving removal rejection, and removal of empty registration metadata.
+Next H-070: compact island panel, logo and installed UI correction.

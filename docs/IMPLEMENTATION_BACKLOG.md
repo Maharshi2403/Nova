@@ -81,3 +81,11 @@ absolute venv entry path, test symlink behavior, rebuild the bundle and rerun sm
 Native transport keeps the daemon credential out of the UI, browser and URLs.
 The task form constructs an operator-authored plan; automatic goal decomposition
 is a later feature and must not be presented as implemented here.
+
+## Compact island-panel correction (user requested)
+
+- H-069: actionable project trust control and safe removal of empty project records;
+  preserve execution's trust/clean-tree gates and allow cleanup of our QA fixture.
+- H-070: replace large default dashboard with a concise floating top-center panel,
+  collapsed status pill, custom Nova monogram/logo, compact setup sheets and clear
+  execution prerequisites; rebuild/install and visually verify on this Mac.
