@@ -112,7 +112,7 @@ pub async fn git(cwd: &Path, args: &[&str]) -> Result<String, RepoError> {
     if !output.status.success() {
         return Err(RepoError::GitFailed {
             args: args.join(" "),
-            stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+            stderr: harness_core::redaction::redact(String::from_utf8_lossy(&output.stderr).trim()),
         });
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())

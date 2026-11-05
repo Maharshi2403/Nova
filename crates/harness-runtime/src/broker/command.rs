@@ -169,8 +169,8 @@ pub async fn run_command(
         exit_code,
         timed_out,
         duration: started.elapsed(),
-        stdout: String::from_utf8_lossy(&out).into_owned(),
-        stderr: String::from_utf8_lossy(&err).into_owned(),
+        stdout: harness_core::redaction::redact(&String::from_utf8_lossy(&out)),
+        stderr: harness_core::redaction::redact(&String::from_utf8_lossy(&err)),
         truncated: out_trunc || err_trunc,
     })
 }

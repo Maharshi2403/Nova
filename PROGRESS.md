@@ -1,6 +1,6 @@
 # Implementation progress
 
-Latest completed ticket: H-054 — portable path and write hardening.
+Latest completed ticket: H-055 — centralized redaction.
 Prior implementation: H-001..H-044 appear in Git history; their original platform
 evidence has not been independently audited. Current stage: G5.
 
@@ -146,5 +146,17 @@ Runtime path_security (3), broker_write (7), broker_read (7), diff_gate (3) PASS
 workspace all-target Clippy/format/diff PASS. Existing argv injection tests remain.
 Parent-directory TOCTOU cannot be eliminated by string canonicalization; trusted
 local mode is not a sandbox. Next: H-055 redaction and bounded logging.
+
+## H-055 verification
+
+Shared diagnostic redaction masks registered runtime credentials, bearer tokens,
+API-key/password/secret patterns and caps UTF-8 output at 64 KiB. Worker stderr,
+command output, Git failure stderr, API error messages and persisted verifier
+artifacts use it; prompt/message fields are removed from artifacts. Daemon tokens
+are registered at load. Core redaction tests (2), runtime broker_command (7),
+verifier (2), worker (7) PASS; workspace Clippy and format/diff checks PASS.
+No normal log includes model prompts. Pattern matching cannot discover every
+unknown secret; protected paths and minimal context remain required.
+Next: H-056 durable typed approvals.
 The original three untracked handoff documents are intentionally excluded from
 the feature commit and left unchanged.

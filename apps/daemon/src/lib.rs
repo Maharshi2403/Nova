@@ -71,6 +71,7 @@ pub async fn start(data_dir: impl AsRef<Path>, bind: SocketAddr) -> Result<Daemo
         .map_err(|e| DaemonError::DataDirectory(std::io::Error::other(e)))?;
     let token_path = data_dir.join(TOKEN_FILE);
     let token = load_or_create_token(&token_path)?;
+    harness_core::redaction::register_secret(&token);
     // Reuse a durable port on restart: binding it establishes single-daemon ownership
     // before touching leases. A second daemon with the same data directory fails closed.
     let bind = if bind.port() == 0 {
@@ -333,7 +334,7 @@ fn api_error(
         status,
         Json(ErrorResponse {
             code,
-            message: message.into(),
+            message: harness_core::redaction::redact(&message.into()),
         }),
     )
 }

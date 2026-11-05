@@ -54,7 +54,16 @@ fn row_to_result(row: &sqlx::sqlite::SqliteRow) -> Result<TestResult, StoreError
 }
 
 impl VerificationRepository for Store {
-    async fn record_test_result(&self, result: NewTestResult) -> Result<TestResult, StoreError> {
+    async fn record_test_result(
+        &self,
+        mut result: NewTestResult,
+    ) -> Result<TestResult, StoreError> {
+        harness_core::redaction::redact_json(&mut result.artifact);
+        result.command = result
+            .command
+            .iter()
+            .map(|s| harness_core::redaction::redact(s))
+            .collect();
         let duration_ms = i64::try_from(result.duration_ms)
             .map_err(|_| StoreError::Corrupt("test result duration out of range".into()))?;
         let command_json = serde_json::to_string(&result.command)?;

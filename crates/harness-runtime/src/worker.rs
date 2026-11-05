@@ -222,7 +222,7 @@ impl Worker {
         let bytes = self.stderr.lock().expect("stderr buffer poisoned").clone();
         ExitReport {
             code: status.and_then(|s| s.code()),
-            stderr: String::from_utf8_lossy(&bytes).into_owned(),
+            stderr: harness_core::redaction::redact(&String::from_utf8_lossy(&bytes)),
             killed_by_supervisor: self.killed,
         }
     }
