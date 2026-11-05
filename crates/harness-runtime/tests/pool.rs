@@ -30,13 +30,19 @@ async fn concurrency_cap_respected_and_blocked_never_dispatched() {
     };
     let c = calls.clone();
     assert_eq!(
-        pool.dispatch(&store, &run.id, 1, budget, move |_, _, _| {
-            let c = c.clone();
-            async move {
-                c.fetch_add(1, Ordering::SeqCst);
-                Err("injected failure".into())
+        pool.dispatch(
+            &store,
+            &run.id,
+            1,
+            |_| budget,
+            move |_, _, _| {
+                let c = c.clone();
+                async move {
+                    c.fetch_add(1, Ordering::SeqCst);
+                    Err("injected failure".into())
+                }
             }
-        })
+        )
         .await
         .unwrap(),
         1
@@ -49,9 +55,13 @@ async fn concurrency_cap_respected_and_blocked_never_dispatched() {
         TaskState::Blocked
     );
     assert_eq!(
-        pool.dispatch(&store, &run.id, 2, budget, |_, _, _| async {
-            panic!("blocked task dispatched")
-        })
+        pool.dispatch(
+            &store,
+            &run.id,
+            2,
+            |_| budget,
+            |_, _, _| async { panic!("blocked task dispatched") }
+        )
         .await
         .unwrap(),
         0

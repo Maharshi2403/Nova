@@ -39,6 +39,10 @@ enum Command {
         test_commands: PathBuf,
         #[arg(long, default_value_t = 2)]
         concurrency: usize,
+        #[arg(long, requires = "model_config")]
+        live: bool,
+        #[arg(long, requires = "live")]
+        model_config: Option<PathBuf>,
     },
     Init {
         repo: PathBuf,
@@ -142,11 +146,23 @@ fn execute(cli: Cli) -> Result<String, CliError> {
             python,
             test_commands,
             concurrency,
+            live,
+            model_config,
         } => {
             let commands = std::fs::read_to_string(test_commands).map_err(CliError::Input)?;
             let commands: Vec<Vec<String>> =
                 serde_json::from_str(&commands).map_err(CliError::DiscoveryJson)?;
-            client.request("POST", &format!("/v1/runs/{run_id}/execute"), Some(serde_json::json!({"python":python, "allowed_test_commands":commands, "concurrency":concurrency})))?
+            let config = model_config
+                .map(|p| {
+                    std::fs::read_to_string(p)
+                        .map_err(CliError::Input)
+                        .and_then(|s| {
+                            serde_json::from_str::<serde_json::Value>(&s)
+                                .map_err(CliError::DiscoveryJson)
+                        })
+                })
+                .transpose()?;
+            client.request("POST", &format!("/v1/runs/{run_id}/execute"), Some(serde_json::json!({"python":python, "allowed_test_commands":commands, "concurrency":concurrency,"live":live,"model_config":config})))?
         }
         Command::Init {
             repo,

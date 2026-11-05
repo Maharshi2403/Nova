@@ -38,7 +38,9 @@ impl WorkerSpec {
     pub fn python_worker(python: impl Into<PathBuf>) -> Self {
         Self {
             program: python.into(),
-            args: ["-m", "harness_ai", "worker"].map(OsString::from).to_vec(),
+            args: ["-I", "-m", "harness_ai", "worker"]
+                .map(OsString::from)
+                .to_vec(),
             cwd: None,
             env: Vec::new(),
         }

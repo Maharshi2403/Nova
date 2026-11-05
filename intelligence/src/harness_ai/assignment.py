@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from datetime import UTC, datetime
 from typing import Any, BinaryIO, Literal
 from uuid import UUID, uuid4
@@ -106,16 +105,16 @@ def run_mock_assignment(start: Envelope, stdin: BinaryIO, stdout: BinaryIO) -> N
             ),
         )
         return
-    if assignment.model.provider == "openai" and assignment.role == "coder":
+    if (
+        assignment.model.provider == "openai"
+        and assignment.role == "coder"
+        and "model.complete" in assignment.allowed_tools
+    ):
         from harness_ai.coder import code_task
+        from harness_ai.provider_stdio import BrokerProvider
         from harness_ai.providers.base import ProviderError
-        from harness_ai.providers.openai import OpenAIProvider
 
         try:
-            provider = OpenAIProvider(
-                enabled=os.environ.get("HARNESS_ENABLE_LIVE") == "1",
-                api_key=os.environ.get("OPENAI_API_KEY", ""),
-            )
 
             def tool(name: str, arguments: dict[str, Any]) -> ToolResponse:
                 request = _envelope(start, "tool_request", {"tool": name, "arguments": arguments})
@@ -132,7 +131,7 @@ def run_mock_assignment(start: Envelope, stdin: BinaryIO, stdout: BinaryIO) -> N
             def emit(kind: str, payload: dict[str, Any]) -> None:
                 write_frame(stdout, _envelope(start, kind, payload))  # type: ignore[arg-type]
 
-            asyncio.run(code_task(assignment, provider, tool, emit))
+            asyncio.run(code_task(assignment, BrokerProvider(tool), tool, emit))
         except ProviderError:
             write_frame(
                 stdout,

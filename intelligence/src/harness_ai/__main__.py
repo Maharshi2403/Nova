@@ -9,7 +9,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--version", action="version", version=f"harness_ai {__version__}")
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("worker", help="run the JSONL worker on stdin/stdout")
+    sub.add_parser("provider", help="one Rust-authorized provider invocation")
     args = parser.parse_args(argv)
+    if args.command == "provider":
+        from harness_ai.provider_stdio import run_stdio
+
+        return run_stdio()
     if args.command == "worker":
         from harness_ai.worker import run_stdio
 

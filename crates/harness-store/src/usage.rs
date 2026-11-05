@@ -50,6 +50,21 @@ impl UsageSummary {
 }
 
 impl Store {
+    pub async fn begin_provider_call(&self, id: &str, lease: &str) -> Result<(), StoreError> {
+        sqlx::query("INSERT INTO provider_calls(id,lease_id) VALUES(?,?)")
+            .bind(id)
+            .bind(lease)
+            .execute(self.pool())
+            .await?;
+        Ok(())
+    }
+    pub async fn finish_provider_call(&self, id: &str) -> Result<(), StoreError> {
+        sqlx::query("UPDATE provider_calls SET finished=1 WHERE id=?")
+            .bind(id)
+            .execute(self.pool())
+            .await?;
+        Ok(())
+    }
     pub async fn record_usage(
         &self,
         lease_id: &str,
@@ -134,7 +149,17 @@ impl Store {
                 .bind(lease_id)
                 .fetch_all(&mut *tx)
                 .await?;
-        let mut cost = if payloads.is_empty() { None } else { Some(0.0) };
+        let unfinished: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM provider_calls WHERE lease_id=? AND finished=0",
+        )
+        .bind(lease_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        let mut cost = if payloads.is_empty() || unfinished > 0 {
+            None
+        } else {
+            Some(0.0)
+        };
         for (payload,) in payloads {
             let usage: Usage = serde_json::from_str(&payload)?;
             cost = cost.zip(usage.cost_usd).map(|(a, b)| a + b);

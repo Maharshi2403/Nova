@@ -3,7 +3,8 @@
 use crate::domain::{Complexity, Risk};
 use crate::registry::{ModelDefinition, ModelRegistry, RegistryError};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RoutingPolicy {
     pub low_model: String,
     pub medium_model: String,

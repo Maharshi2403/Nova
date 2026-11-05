@@ -178,3 +178,34 @@ async fn known_cost_settles_once_after_worker_stops() {
             .unwrap();
     assert_eq!(amount, 25_000);
 }
+
+#[tokio::test]
+async fn interrupted_provider_call_keeps_reservation_even_with_prior_known_usage() {
+    let (_d, store, rev) = ready_store(&["a"]).await;
+    let (task, _) = store
+        .grant_budgeted_lease(
+            &rid(),
+            &tid("a"),
+            rev,
+            &req("l", "w", 0),
+            budget(100_000, 100_000, 100_000),
+        )
+        .await
+        .unwrap();
+    store
+        .record_usage("l", "finished", &usage(Some(0.01)))
+        .await
+        .unwrap();
+    store.begin_provider_call("interrupted", "l").await.unwrap();
+    store
+        .transition_task(&rid(), &tid("a"), task.revision, TaskState::RetryWait, None)
+        .await
+        .unwrap();
+    store.settle_usage("l").await.unwrap();
+    let amount: i64 =
+        sqlx::query_scalar("SELECT amount FROM budget_reservations WHERE lease_id='l'")
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(amount, 100_000);
+}

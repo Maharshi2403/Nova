@@ -27,12 +27,15 @@ async fn fresh_db_migrates() {
     assert_eq!(
         table_names(&store).await,
         [
+            "approvals",
             "budget_reservations",
             "events",
             "git_artifacts",
             "leases",
             "plans",
+            "project_trust",
             "projects",
+            "provider_calls",
             "runs",
             "task_dependencies",
             "tasks",

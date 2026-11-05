@@ -1,6 +1,6 @@
 # Implementation progress
 
-Latest completed ticket: H-043b — bounded structured coder loop backfill.
+Latest completed ticket: H-043c — Rust-authorized live execution backfill.
 Prior implementation: H-001..H-044 appear in Git history; their original platform
 evidence has not been independently audited. Current stage: G5.
 
@@ -198,5 +198,22 @@ OpenAI Docs skill. No model IDs/prices are hardcoded.
 `cd intelligence && uv run --offline --locked pytest -q`: PASS (84), Ruff check
 and format PASS (29 files), mypy PASS (28 files). All provider tests are fake/offline.
 Next: H-043c Rust live routing/reservations and explicit CLI opt-in.
+
+## H-043c verification
+
+Explicit `execute --live --model-config` selects registry models by task complexity
+and risk, reserves each task's full spend cap under run/daily limits and authorizes
+each provider request against its exact model/input/output grant. Coder processes
+have no credentials. A separate isolated-import Python adapter process receives
+the key only for one bounded request; Rust records its observed usage and prices
+it from the configured registry. Failed/uncertain calls remain unknown. A durable
+in-flight call marker prevents cancellation/restart from refunding unknown spend.
+No actual model IDs/prices are assumed and no live call was performed.
+
+`cargo test --workspace --offline`: PASS (after correcting the expected table
+inventory for approvals/trust/provider calls). Runtime live tests (3) include real
+IPC with an empty key, proving refusal before network; engine/pool/usage tests pass.
+Workspace Clippy/format/diff PASS. Python pytest PASS (84), Ruff PASS (30 files),
+mypy PASS (29 files). Next: H-058 cross-platform release checks and regressions.
 The original three untracked handoff documents are intentionally excluded from
 the feature commit and left unchanged.

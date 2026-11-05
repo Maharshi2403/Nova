@@ -137,6 +137,7 @@ async def code_task(assignment: StartTask, provider: ModelProvider, tool: Tool, 
                 if action.tool not in assignment.allowed_tools or action.tool in (
                     "task.describe",
                     "model.authorize",
+                    "model.complete",
                 ):
                     raise PermanentProviderError("model requested unauthorized tool")
                 arguments = json.loads(action.arguments_json or "null")

@@ -193,6 +193,10 @@ struct ExecuteRequest {
     python: PathBuf,
     allowed_test_commands: Vec<Vec<String>>,
     concurrency: usize,
+    #[serde(default)]
+    live: bool,
+    #[serde(default)]
+    model_config: Option<harness_runtime::live::LiveConfig>,
 }
 
 async fn execute_run(
@@ -201,6 +205,13 @@ async fn execute_run(
     Json(request): Json<ExecuteRequest>,
 ) -> ApiResult<serde_json::Value> {
     let run = load_run(&state.store, run_id).await?;
+    if request.live != request.model_config.is_some() {
+        return Err(api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "live_opt_in_required",
+            "live flag and model configuration must be supplied together",
+        ));
+    }
     let engine = state.engine.ok_or_else(|| {
         api_error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -208,11 +219,11 @@ async fn execute_run(
             "execution runtime is not configured",
         )
     })?;
-    engine.launch(state.store, run.id.clone(), request.python, request.allowed_test_commands, request.concurrency).await.map_err(|_| api_error(StatusCode::CONFLICT, "execution_denied", "check run approval, exact test command approvals, Python path, clean repository and concurrency"))?;
+    engine.launch_with_live(state.store, run.id.clone(), request.python, request.allowed_test_commands, request.concurrency, request.model_config).await.map_err(|_| api_error(StatusCode::CONFLICT, "execution_denied", "check trust, run approval, exact test commands, Python path, clean repository, routing and budgets"))?;
     Ok((
         StatusCode::ACCEPTED,
         Json(
-            serde_json::json!({"run_id":run.id.to_string(), "execution":"started", "provider":"mock"}),
+            serde_json::json!({"run_id":run.id.to_string(), "execution":"started", "provider":if request.live {"openai"} else {"mock"}}),
         ),
     ))
 }

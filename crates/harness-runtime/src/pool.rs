@@ -58,17 +58,18 @@ impl WorkerPool {
     }
     /// Caller executes and verifies each leased task. The pool never equates successful
     /// worker output with completion. Errors block the task and retain its worktree.
-    pub async fn dispatch<F, Fut>(
+    pub async fn dispatch<F, Fut, B>(
         &mut self,
         store: &Store,
         run: &RunId,
         now: i64,
-        budget: BudgetRequest,
+        budget: B,
         execute: F,
     ) -> Result<usize, StoreError>
     where
         F: Fn(Task, String, watch::Receiver<bool>) -> Fut,
         Fut: Future<Output = Result<(), String>> + Send + 'static,
+        B: Fn(&Task) -> BudgetRequest,
     {
         let ready = tick(store, run, now).await?;
         let tasks = store.list_tasks(run).await?;
@@ -93,7 +94,7 @@ impl WorkerPool {
                 ttl_seconds: task.spec.limits.timeout_seconds.saturating_add(300),
             };
             let (leased, _) = match store
-                .grant_budgeted_lease(run, &id, task.revision, &req, budget)
+                .grant_budgeted_lease(run, &id, task.revision, &req, budget(task))
                 .await
             {
                 Ok(v) => v,
