@@ -301,3 +301,75 @@ async fn status_matches_db() {
     assert_eq!(response["state"], "running");
     assert_eq!(response["revision"], run.revision);
 }
+
+#[tokio::test]
+async fn stale_priority_http_409() {
+    let (_data, store, _repository, run_id) = running_fixture().await;
+    let body = json!({"revision": 0, "manual_priority": 90}).to_string();
+    let response = api_router(TOKEN.into(), store)
+        .oneshot(
+            auth(Request::patch(format!(
+                "/v1/tasks/{run_id}/task-1/priority"
+            )))
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn unauthorized_approval_denied() {
+    let (_data, store, _repository) = fixture().await;
+    let response = api_router(TOKEN.into(), store)
+        .oneshot(
+            Request::post("/v1/approvals/not-real/decision")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn events_cursor_replay() {
+    let (_data, store, _repository, run_id) = running_fixture().await;
+    let app = api_router(TOKEN.into(), store);
+    let first = app
+        .clone()
+        .oneshot(
+            auth(Request::get(format!(
+                "/v1/events?run_id={run_id}&after=0&limit=1"
+            )))
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(first.status(), StatusCode::OK);
+    let body = to_bytes(first.into_body(), 4096).await.unwrap();
+    let first: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(first.as_array().unwrap().len(), 1);
+    let sequence = first[0]["sequence"].as_i64().unwrap();
+    let next = app
+        .oneshot(
+            auth(Request::get(format!(
+                "/v1/events?run_id={run_id}&after={sequence}"
+            )))
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body = to_bytes(next.into_body(), 4096).await.unwrap();
+    let next: Value = serde_json::from_slice(&body).unwrap();
+    assert!(
+        next.as_array()
+            .unwrap()
+            .iter()
+            .all(|event| event["sequence"].as_i64().unwrap() > sequence)
+    );
+}

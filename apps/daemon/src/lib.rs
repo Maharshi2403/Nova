@@ -4,18 +4,18 @@ use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 
 use axum::body::Body;
-use axum::extract::{Path as RoutePath, State};
+use axum::extract::{Path as RoutePath, Query, State};
 use axum::http::{Request, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post};
 use axum::{Json, Router};
-use harness_core::domain::{Project, ProjectId, Run, RunId, RunState, Task};
+use harness_core::domain::{Priority, Project, ProjectId, Run, RunId, RunState, Task};
 use harness_core::plan::PlanProposal;
 use harness_runtime::git::register_repo;
 use harness_runtime::scheduler::tick;
 use harness_store::Store;
 use harness_store::plans::{PlanRecord, PlanRepository, PlanStatus};
-use harness_store::repository::Repository;
+use harness_store::repository::{PriorityUpdate, Repository};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -119,6 +119,13 @@ pub fn api_router(token: String, store: Store) -> Router {
             .route("/runs/{run_id}/resume", post(resume_run))
             .route("/runs/{run_id}/cancel", post(cancel_run))
             .route("/runs/{run_id}/tasks", get(list_tasks))
+            .route(
+                "/tasks/{run_id}/{task_id}/priority",
+                patch(update_task_priority),
+            )
+            .route("/events", get(list_events))
+            .route("/usage", get(list_usage))
+            .route("/approvals/{approval_id}/decision", post(decide_approval))
             .with_state(ApiState { store })
             .layer(axum::middleware::from_fn_with_state(token, require_bearer)),
     )
@@ -186,6 +193,38 @@ struct TaskResponse {
     revision: u64,
     attempt: u32,
     spec: harness_core::domain::TaskSpec,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PriorityRequest {
+    revision: u64,
+    manual_priority: Option<i64>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EventsQuery {
+    run_id: String,
+    after: Option<i64>,
+    limit: Option<u32>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UsageQuery {
+    run_id: String,
+}
+
+#[derive(Serialize)]
+struct EventResponse {
+    sequence: i64,
+    run_id: String,
+    task_id: Option<String>,
+    kind: String,
+    from_state: Option<String>,
+    to_state: Option<String>,
+    attempt: Option<i64>,
 }
 
 #[derive(Serialize)]
@@ -523,6 +562,109 @@ fn load_or_create_token(path: &Path) -> Result<String, DaemonError> {
         }
         Err(error) => Err(DaemonError::TokenFile(error)),
     }
+}
+
+async fn update_task_priority(
+    State(state): State<ApiState>,
+    RoutePath((run_id, task_id)): RoutePath<(String, String)>,
+    Json(request): Json<PriorityRequest>,
+) -> ApiResult<TaskResponse> {
+    let run = load_run(&state.store, run_id).await?;
+    let task_id = harness_core::domain::TaskId::new(task_id).map_err(|error| {
+        api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_task_id",
+            error.to_string(),
+        )
+    })?;
+    let priority = request
+        .manual_priority
+        .map(Priority::new)
+        .transpose()
+        .map_err(|error| {
+            api_error(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "invalid_priority",
+                error.to_string(),
+            )
+        })?;
+    let task = state
+        .store
+        .set_priority(
+            &run.id,
+            &task_id,
+            request.revision,
+            PriorityUpdate::Manual(priority),
+        )
+        .await
+        .map_err(|error| {
+            let status = if matches!(error, harness_store::StoreError::RevisionConflict { .. }) {
+                StatusCode::CONFLICT
+            } else {
+                StatusCode::UNPROCESSABLE_ENTITY
+            };
+            api_error(status, "priority_not_updated", error.to_string())
+        })?;
+    Ok((StatusCode::OK, Json(task_response(task))))
+}
+
+async fn list_events(
+    State(state): State<ApiState>,
+    Query(query): Query<EventsQuery>,
+) -> ApiResult<Vec<EventResponse>> {
+    let run = load_run(&state.store, query.run_id).await?;
+    let events = state
+        .store
+        .list_events(
+            &run.id,
+            query.after.unwrap_or(0),
+            query.limit.unwrap_or(100),
+        )
+        .await
+        .map_err(|error| {
+            api_error(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "invalid_cursor",
+                error.to_string(),
+            )
+        })?;
+    Ok((
+        StatusCode::OK,
+        Json(
+            events
+                .into_iter()
+                .map(|event| EventResponse {
+                    sequence: event.sequence,
+                    run_id: event.run_id,
+                    task_id: event.task_id,
+                    kind: event.kind,
+                    from_state: event.from_state,
+                    to_state: event.to_state,
+                    attempt: event.attempt,
+                })
+                .collect(),
+        ),
+    ))
+}
+
+async fn list_usage(
+    State(state): State<ApiState>,
+    Query(query): Query<UsageQuery>,
+) -> ApiResult<Vec<serde_json::Value>> {
+    let _run = load_run(&state.store, query.run_id).await?;
+    // Usage records are introduced with model accounting (H-040); returning an empty
+    // collection is accurate until an authoritative record exists.
+    Ok((StatusCode::OK, Json(Vec::new())))
+}
+
+async fn decide_approval(
+    RoutePath(_approval_id): RoutePath<String>,
+) -> (StatusCode, Json<ErrorResponse>) {
+    api_error(
+        StatusCode::NOT_FOUND,
+        "approval_not_found",
+        "approval decisions are not available until an approval is requested",
+    )
 }
 
 #[cfg(unix)]
