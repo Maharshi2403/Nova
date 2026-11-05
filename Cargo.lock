@@ -698,6 +698,9 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "clap",
+ "harness-core",
+ "harness-runtime",
+ "harness-store",
  "serde",
  "serde_json",
  "tempfile",
