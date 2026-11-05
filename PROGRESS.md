@@ -1,6 +1,6 @@
 # Implementation progress
 
-Latest completed ticket: H-053a — connect offline execution.
+Latest completed ticket: H-053b — load and crash evidence.
 Prior implementation: H-001..H-044 appear in Git history; their original platform
 evidence has not been independently audited. Current stage: G5.
 
@@ -114,5 +114,25 @@ arbitrary coding requests. Integration branches do not change the user's checkou
 `cargo clippy --offline --workspace --all-targets -- -D warnings`: PASS;
 Python pytest PASS (82), Ruff check/format PASS (27 files), mypy PASS (26 files).
 Local macOS only, no live API calls. Next: H-053b load and CLI fault evidence.
+
+## H-053b verification
+
+Added `scripts/offline_demo.py`: real CLI/daemon/Python/broker/SQLite/Git execution,
+dependency chains, exact content assertions, unique SHA and evidence inspection,
+clean original checkout, and forced daemon kill during verification. SQLite reads
+in the Python fixture use mode=ro; all runtime writes are Rust-owned. Startup holds
+a cross-platform OS file lock and binds before reconciling old-supervisor leases.
+
+- `cargo build --offline --workspace`: PASS.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 100`: PASS, 100
+  integrated tasks with unique commits and real verifier evidence.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 1 --fault`: PASS
+  (also rerun after adding OS lock), interrupted task blocked without replay.
+- Store lease tests (5), runtime recovery (1), daemon server (4): PASS.
+- Workspace Clippy/format/diff checks: PASS.
+
+No cross-platform gate sign-off yet; Windows CI still required. A verifier already
+running when a daemon is forcibly killed can finish independently; recovery blocks
+its task rather than silently repeating it. Next: H-054 path/command hardening.
 The original three untracked handoff documents are intentionally excluded from
 the feature commit and left unchanged.

@@ -59,17 +59,40 @@ pub async fn start(data_dir: impl AsRef<Path>, bind: SocketAddr) -> Result<Daemo
     }
     let data_dir = data_dir.as_ref();
     std::fs::create_dir_all(data_dir).map_err(DaemonError::DataDirectory)?;
+    let daemon_lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(data_dir.join("daemon.lock"))
+        .map_err(DaemonError::DataDirectory)?;
+    daemon_lock
+        .try_lock()
+        .map_err(|e| DaemonError::DataDirectory(std::io::Error::other(e)))?;
     let token_path = data_dir.join(TOKEN_FILE);
     let token = load_or_create_token(&token_path)?;
-    let store = Store::open(data_dir.join("harness.db"))
-        .await
-        .map_err(DaemonError::Store)?;
-    harness_runtime::recovery::reconcile(&store, unix_seconds())
-        .await
-        .map_err(DaemonError::Store)?;
+    // Reuse a durable port on restart: binding it establishes single-daemon ownership
+    // before touching leases. A second daemon with the same data directory fails closed.
+    let bind = if bind.port() == 0 {
+        std::fs::read(data_dir.join(PORT_FILE))
+            .ok()
+            .and_then(|v| serde_json::from_slice::<serde_json::Value>(&v).ok())
+            .and_then(|v| v["port"].as_u64())
+            .and_then(|p| u16::try_from(p).ok())
+            .filter(|p| *p > 0)
+            .map_or(bind, |p| SocketAddr::new(bind.ip(), p))
+    } else {
+        bind
+    };
     let listener = tokio::net::TcpListener::bind(bind)
         .await
         .map_err(DaemonError::Bind)?;
+    let store = Store::open(data_dir.join("harness.db"))
+        .await
+        .map_err(DaemonError::Store)?;
+    harness_runtime::recovery::reconcile_interrupted(&store, unix_seconds())
+        .await
+        .map_err(DaemonError::Store)?;
     let address = listener.local_addr().map_err(DaemonError::Bind)?;
     let discovery_path = data_dir.join(PORT_FILE);
     let discovery = serde_json::to_vec(&Discovery {
@@ -85,6 +108,7 @@ pub async fn start(data_dir: impl AsRef<Path>, bind: SocketAddr) -> Result<Daemo
         )),
     );
     tokio::spawn(async move {
+        let _daemon_lock = daemon_lock;
         let _ = axum::serve(listener, app).await;
     });
     Ok(Daemon {

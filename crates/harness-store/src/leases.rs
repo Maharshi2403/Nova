@@ -123,11 +123,31 @@ impl LeaseRepository for Store {
     }
 
     async fn reconcile_expired_leases(&self, now: i64) -> Result<Vec<Reconciled>, StoreError> {
+        self.reconcile_leases(now, false).await
+    }
+}
+
+impl Store {
+    /// Only call after acquiring exclusive daemon ownership. No worker from the old
+    /// supervisor is trusted to continue mutating durable task state.
+    pub async fn reconcile_interrupted_leases(
+        &self,
+        now: i64,
+    ) -> Result<Vec<Reconciled>, StoreError> {
+        self.reconcile_leases(now, true).await
+    }
+
+    async fn reconcile_leases(
+        &self,
+        now: i64,
+        interrupted: bool,
+    ) -> Result<Vec<Reconciled>, StoreError> {
         let rows = sqlx::query(&format!(
-            "SELECT {LEASE_COLUMNS} FROM leases WHERE released_at IS NULL AND expires_at <= ? \
+            "SELECT {LEASE_COLUMNS} FROM leases WHERE released_at IS NULL AND (expires_at <= ? OR ?) \
              ORDER BY expires_at ASC, id ASC"
         ))
         .bind(now)
+        .bind(interrupted)
         .fetch_all(self.pool())
         .await?;
 

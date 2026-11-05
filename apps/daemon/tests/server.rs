@@ -50,6 +50,10 @@ async fn healthz_minimal() {
 async fn ephemeral_port_and_token_are_persisted() {
     let dir = tempdir().unwrap();
     let daemon = start(dir.path(), loopback_ephemeral()).await.unwrap();
+    assert!(
+        start(dir.path(), loopback_ephemeral()).await.is_err(),
+        "second daemon must not acquire the same state directory"
+    );
     assert_ne!(daemon.address.port(), 0);
     assert!(daemon.token_path.exists());
     assert!(daemon.discovery_path.exists());
