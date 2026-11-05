@@ -5,3 +5,4 @@ pub mod priority;
 pub mod readiness;
 pub mod supervisor;
 pub mod worker;
+pub mod worktree;
