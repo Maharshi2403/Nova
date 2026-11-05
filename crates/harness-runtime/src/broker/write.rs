@@ -2,7 +2,9 @@
 //! assigned paths (glob patterns) inside its worktree; Git internals and secret-looking
 //! files are never writable. Read tools are delegated to [`RepoReadBroker`].
 
+use std::io::Write;
 use std::path::Path;
+use unicode_normalization::UnicodeNormalization;
 
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use harness_core::messages::{ToolRequest, ToolResponse};
@@ -51,7 +53,8 @@ impl RepoWriteBroker {
     ) -> Result<Self, PathError> {
         let mut builder = GlobSetBuilder::new();
         for p in assigned_paths {
-            let p = p.trim_end_matches('/');
+            let normalized: String = p.nfc().collect();
+            let p = normalized.trim_end_matches('/');
             for pattern in [p.to_owned(), format!("{p}/**")] {
                 let glob = GlobBuilder::new(&pattern)
                     .literal_separator(true)
@@ -126,7 +129,13 @@ impl RepoWriteBroker {
         {
             return fail("io_error", e);
         }
-        if let Err(e) = std::fs::write(&full, new_text.as_bytes()) {
+        // Recheck after creating directories, then atomically replace the entry.
+        // This does not follow a swapped final symlink or overwrite a hardlink's inode.
+        // Parent-directory TOCTOU still requires trusted-local or a real OS sandbox.
+        if let Err(e) = self.policy.resolve_for_write(&args.path) {
+            return fail("error", e);
+        }
+        if let Err(e) = atomic_write(&full, new_text.as_bytes()) {
             return fail("io_error", e);
         }
         ToolResponse {
@@ -135,6 +144,27 @@ impl RepoWriteBroker {
             error: None,
         }
     }
+}
+
+fn atomic_write(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    let temporary = path.with_file_name(format!(".harness-write-{}", uuid::Uuid::new_v4()));
+    let mut file = std::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&temporary)?;
+    let result = (|| {
+        if let Ok(metadata) = std::fs::metadata(path) {
+            file.set_permissions(metadata.permissions())?;
+        }
+        file.write_all(contents)?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&temporary, path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
 }
 
 fn read_text(path: &Path) -> Result<String, ToolResponse> {

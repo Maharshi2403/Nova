@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use harness_core::domain::{Risk, Task};
 use regex::Regex;
+use unicode_normalization::UnicodeNormalization;
 
 use crate::broker::command::{DEFAULT_COMMAND_TIMEOUT, MAX_COMMAND_OUTPUT_BYTES, run_command};
 use crate::broker::paths::{PathPolicy, is_denied_relative};
@@ -60,7 +61,8 @@ impl DiffGate {
     ) -> Result<Self, DiffGateError> {
         let mut builder = GlobSetBuilder::new();
         for path in assigned_paths {
-            let path = path.trim_end_matches('/');
+            let normalized: String = path.nfc().collect();
+            let path = normalized.trim_end_matches('/');
             if path.is_empty() {
                 return Err(DiffGateError::InvalidScope("empty assigned path".into()));
             }
@@ -130,6 +132,14 @@ impl DiffGate {
                 return Err(DiffGateError::UnexpectedPath(normalized));
             }
             let full = worktree.join(&relative);
+            if std::fs::symlink_metadata(&full).is_ok_and(|m| m.file_type().is_symlink()) {
+                return Err(DiffGateError::ProtectedPath(normalized));
+            }
+            if full.exists() {
+                policy
+                    .resolve_existing(path)
+                    .map_err(|_| DiffGateError::ProtectedPath(normalized.clone()))?;
+            }
             if let Ok(metadata) = std::fs::metadata(&full) {
                 changed_bytes = changed_bytes.saturating_add(metadata.len());
                 if metadata.is_file() && metadata.len() <= MAX_SECRET_SCAN_BYTES {

@@ -1,6 +1,7 @@
 //! In-process resource claims for the single daemon. Durable leases remain authoritative.
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
+use unicode_normalization::UnicodeNormalization;
 
 #[derive(Clone, Default)]
 pub struct ResourceLocks(Arc<Mutex<State>>);
@@ -41,7 +42,7 @@ fn normalize(path: &str) -> Option<String> {
     if parts.iter().any(|p| p.is_empty() || *p == "..") || parts.is_empty() {
         return None;
     }
-    Some(parts.join("/").to_lowercase())
+    Some(parts.join("/").nfc().collect::<String>().to_lowercase())
 }
 
 fn overlaps(a: &str, b: &str) -> bool {

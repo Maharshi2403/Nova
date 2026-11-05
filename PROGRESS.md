@@ -1,6 +1,6 @@
 # Implementation progress
 
-Latest completed ticket: H-053b — load and crash evidence.
+Latest completed ticket: H-054 — portable path and write hardening.
 Prior implementation: H-001..H-044 appear in Git history; their original platform
 evidence has not been independently audited. Current stage: G5.
 
@@ -134,5 +134,17 @@ a cross-platform OS file lock and binds before reconciling old-supervisor leases
 No cross-platform gate sign-off yet; Windows CI still required. A verifier already
 running when a daemon is forcibly killed can finish independently; recovery blocks
 its task rather than silently repeating it. Next: H-054 path/command hardening.
+
+## H-054 verification
+
+Rejects Windows drive/ADS/backslash paths, device names, control characters,
+trailing-dot/space aliases and credential/config directories on every OS. Unicode
+NFC is shared by path scopes and locks. Writes use create-new temporary files and
+atomic replacement, preserving permissions and avoiding external hardlink inode
+mutation. Diff scanning rejects symlink targets before reading them.
+Runtime path_security (3), broker_write (7), broker_read (7), diff_gate (3) PASS;
+workspace all-target Clippy/format/diff PASS. Existing argv injection tests remain.
+Parent-directory TOCTOU cannot be eliminated by string canonicalization; trusted
+local mode is not a sandbox. Next: H-055 redaction and bounded logging.
 The original three untracked handoff documents are intentionally excluded from
 the feature commit and left unchanged.

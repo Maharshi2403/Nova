@@ -3,6 +3,7 @@
 //! well-known secret file.
 
 use std::path::{Component, Path, PathBuf};
+use unicode_normalization::UnicodeNormalization;
 
 use crate::git::simplify;
 
@@ -47,7 +48,11 @@ pub fn is_denied_relative(rel: &Path) -> bool {
     rel.components().any(|c| match c {
         Component::Normal(name) => {
             let name = name.to_string_lossy();
-            name.eq_ignore_ascii_case(".git") || is_sensitive_name(&name)
+            let portable = name.trim_end_matches(['.', ' ']).to_ascii_lowercase();
+            matches!(
+                portable.as_str(),
+                ".git" | ".ssh" | ".aws" | ".azure" | ".config" | ".codex" | ".agents"
+            ) || is_sensitive_name(&portable)
         }
         Component::CurDir => false,
         _ => true,
@@ -68,10 +73,25 @@ impl PathPolicy {
 
     /// Validate a worker-supplied relative path syntactically.
     pub fn check_relative(&self, input: &str) -> Result<PathBuf, PathError> {
-        if input.is_empty() || input.contains('\0') {
+        if input.is_empty() || input.chars().any(char::is_control) || input.contains([':', '\\']) {
             return Err(PathError::Denied("empty or invalid path".into()));
         }
-        let rel = Path::new(input);
+        for part in input.split('/') {
+            if part == "." {
+                continue;
+            }
+            let name = part.split('.').next().unwrap_or("").to_ascii_uppercase();
+            if part.ends_with(['.', ' '])
+                || matches!(name.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+                || (name.len() == 4
+                    && (name.starts_with("COM") || name.starts_with("LPT"))
+                    && name.as_bytes()[3].is_ascii_digit())
+            {
+                return Err(PathError::Denied("nonportable or reserved path".into()));
+            }
+        }
+        let normalized: String = input.nfc().collect();
+        let rel = Path::new(&normalized);
         if rel.is_absolute() || rel.has_root() || input.starts_with(['/', '\\']) {
             return Err(PathError::Denied("absolute paths are not allowed".into()));
         }

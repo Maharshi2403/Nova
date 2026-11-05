@@ -727,6 +727,7 @@ dependencies = [
  "thiserror",
  "time",
  "tokio",
+ "unicode-normalization",
  "uuid",
 ]
 
