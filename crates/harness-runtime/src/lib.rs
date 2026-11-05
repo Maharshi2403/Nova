@@ -3,6 +3,7 @@
 pub mod broker;
 pub mod budget;
 pub mod committer;
+pub mod context;
 pub mod diff_gate;
 pub mod git;
 pub mod integration;
