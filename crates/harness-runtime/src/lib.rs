@@ -7,6 +7,7 @@ pub mod context;
 pub mod diff_gate;
 pub mod git;
 pub mod integration;
+pub mod locks;
 pub mod priority;
 pub mod readiness;
 pub mod scheduler;

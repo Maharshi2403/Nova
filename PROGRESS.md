@@ -1,6 +1,6 @@
 # Implementation progress
 
-Latest completed ticket: H-046 — bounded retries and policy-controlled fallback.
+Latest completed ticket: H-047 — project resource locks.
 Prior implementation: H-001..H-044 appear in Git history; their original platform
 evidence has not been independently audited. Current stage: G5.
 
@@ -43,6 +43,15 @@ Commands: `cd intelligence && uv run --offline --locked pytest -q` PASS (82 test
 PASS (26 files); changed files formatted with Ruff; `git diff --check` PASS.
 No live calls. Cross-platform CI has not been executed remotely.
 
-Next unblocked ticket: H-047 — resource locks for parallel assignments.
+## H-047 verification
+
+Added shared project/path locks, conservative case-insensitive directory overlap,
+exclusive project operations and RAII cleanup on error/unwind. Invalid scopes fail
+closed. Durable leases and broker canonical-path authorization are still required.
+`cargo test --offline -p harness-runtime --test locks`: PASS (3 tests).
+`cargo clippy --offline -p harness-runtime --all-targets -- -D warnings`: PASS.
+`cargo fmt --all` and `git diff --check`: PASS.
+
+Next unblocked ticket: H-048 — bounded worker pool.
 The original three untracked handoff documents are intentionally excluded from
 the feature commit and left unchanged.
