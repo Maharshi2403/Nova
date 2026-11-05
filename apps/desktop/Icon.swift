@@ -18,21 +18,17 @@ for size in [16, 32, 128, 256, 512] {
       roundedRect: NSRect(x: 0, y: 0, width: n, height: n), xRadius: n * 0.22, yRadius: n * 0.22
     ).fill()
     let mark = NSBezierPath()
-    mark.move(to: NSPoint(x: n * 0.5, y: n * 0.82))
-    mark.curve(
-      to: NSPoint(x: n * 0.82, y: n * 0.5), controlPoint1: NSPoint(x: n * 0.55, y: n * 0.57),
-      controlPoint2: NSPoint(x: n * 0.57, y: n * 0.55))
-    mark.curve(
-      to: NSPoint(x: n * 0.5, y: n * 0.18), controlPoint1: NSPoint(x: n * 0.57, y: n * 0.45),
-      controlPoint2: NSPoint(x: n * 0.55, y: n * 0.43))
-    mark.curve(
-      to: NSPoint(x: n * 0.18, y: n * 0.5), controlPoint1: NSPoint(x: n * 0.45, y: n * 0.43),
-      controlPoint2: NSPoint(x: n * 0.43, y: n * 0.45))
-    mark.curve(
-      to: NSPoint(x: n * 0.5, y: n * 0.82), controlPoint1: NSPoint(x: n * 0.43, y: n * 0.55),
-      controlPoint2: NSPoint(x: n * 0.45, y: n * 0.57))
+    mark.move(to: NSPoint(x: n * 0.25, y: n * 0.25))
+    mark.line(to: NSPoint(x: n * 0.25, y: n * 0.75))
+    mark.line(to: NSPoint(x: n * 0.70, y: n * 0.25))
+    mark.line(to: NSPoint(x: n * 0.70, y: n * 0.75))
+    mark.lineWidth = n * 0.09
+    mark.lineCapStyle = .round
+    mark.lineJoinStyle = .round
+    NSColor.white.setStroke()
+    mark.stroke()
     NSColor.white.setFill()
-    mark.fill()
+    NSBezierPath(ovalIn: NSRect(x: n * 0.80, y: n * 0.78, width: n * 0.07, height: n * 0.07)).fill()
     NSGraphicsContext.restoreGraphicsState()
     let suffix = scale == 2 ? "@2x" : ""
     try bitmap.representation(using: .png, properties: [:])!.write(

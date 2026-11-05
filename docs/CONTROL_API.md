@@ -49,3 +49,9 @@ Both require the same bearer authentication and reject browser-origin requests.
 Dashboard runs include their latest immutable `plan_version` when available.
 Trusted project import checks the Git root/base but permits uncommitted changes;
 execution still enforces a clean checkout.
+
+Project controls: POST `/v1/projects/{id}/trust` with `{trusted_local:true/false}`
+records an explicit trust decision; enabling checks the Git root and base without
+requiring a clean checkout. DELETE `/v1/projects/{id}` removes only an empty
+registration (409 when it has runs), never repository files. Both require bearer
+authentication and retain origin rejection.

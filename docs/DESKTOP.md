@@ -1,15 +1,21 @@
 # Native desktop dashboard
 
-Nova's macOS desktop client is native SwiftUI. It uses a bounded JSON stdin bridge
+Nova's macOS desktop client is a native SwiftUI island panel. It uses a bounded JSON stdin bridge
 to the Nova CLI; the CLI reads the daemon credential privately. No bearer token or
 API key appears in an argument or URL. The daemon still rejects browser origins.
 There is no hosted dashboard or telemetry. Live models receive approved task context.
 
-The window shows projects, paged runs, task states, plan versions, model usage,
+The panel opens as a 210 × 44 point dark status pill below the top-center notch/island
+area. Expand it to 360 × 340 points for Work, Projects and Models. Its menu-bar
+Nova logo restores a hidden panel; repeated launches reuse the same panel for
+that state directory. It floats without replacing the active app. Setup and task
+forms are compact on-demand sheets. The editable logo is `apps/desktop/NovaLogo.svg`.
+
+The panel shows projects, paged runs, task states, plan versions, model usage,
 scoped command approvals, verifier results and task/integration commit identities.
 Only durable verified/integrated state is presented as completed. Unknown costs
 remain unknown. The activity view shows up to the first 1,000 events, with the last
-100 of that page visible. CLI event cursors remain available for larger histories.
+30 of that page visible in Details. CLI event cursors remain available for larger histories.
 
 Provider setup uses a hidden key field, account-model discovery and macOS Keychain.
 No generation request is made when connecting a provider. Unknown model metadata
@@ -20,7 +26,10 @@ defaults in the Model routes view.
 Add an existing committed Git repository with a name and explicit local trust choice.
 A project can be added while it has uncommitted changes; import leaves those files
 untouched. Execution requires a clean working tree. Commit or stash your work
-before execution. Untrusted projects cannot execute. Tests run with your user
+before execution. Untrusted projects show “Trust needed” with an explicit Enable action. Enabling
+local execution is a separate trust decision, and does not approve or execute a
+plan. Empty project registrations can be removed without deleting repository files;
+projects with runs are retained. Tests run with your user
 permissions; worktrees are not an OS sandbox.
 
 The task-plan editor constructs an operator-authored plan without JSON. Enter a

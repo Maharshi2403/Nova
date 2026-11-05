@@ -42,8 +42,9 @@ nova
 `nova` starts the service in the background or connects if it is already running.
 `nova start` does the same thing. `nova stop` safely stops an idle service; active
 runs must finish or be paused/cancelled first. `nova --help` lists the commands.
-Use `nova ui` to open the native management window after installing the desktop
-bundle; see [desktop setup](docs/DESKTOP.md). It includes guided project/task-plan
+Use `nova ui` to open the small floating island panel after installing the desktop
+bundle; see [desktop setup](docs/DESKTOP.md). It opens as a compact Nova logo/status
+pill near the top-center island, with expandable controls and guided project/task-plan
 forms, provider setup, model routes, progress, approvals, costs and evidence.
 No agents or paid provider calls start automatically. No separate daemon binary
 is needed to use the installed Nova command.

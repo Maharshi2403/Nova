@@ -458,3 +458,28 @@ Validation: daemon API 16 tests passed; workspace Clippy passed. New regression
 covers unauthenticated trust denial, explicit enable, dirty-file preservation,
 run-preserving removal rejection, and removal of empty registration metadata.
 Next H-070: compact island panel, logo and installed UI correction.
+
+## H-070 — compact island panel and Nova logo correction
+
+Replaced the oversized default dashboard with a native floating, dark top-center
+panel: 210×44-point collapsed status pill (default), 360×340 expanded Work/Projects/
+Models controls. Added a custom Nova N monogram across panel, menu bar, ICNS and
+editable SVG. Setup/task sheets are compact and task editing is one column.
+One panel per canonical state directory is enforced; repeated launches reveal it.
+
+Execution prerequisites are actionable: untrusted projects offer Enable, unapproved
+plans offer Approve, and live execution without ready models states the missing
+metadata. The user-authored documentation plan in our QA project was preserved;
+a copy was created as a reviewable draft under the real Nova repository, with no
+approval/execution or paid calls. The QA registration now contains user history
+and was retained instead of deleting that work.
+
+Validation: 227 Rust workspace tests passed; native Swift compilation passed.
+Compact preview expanded/collapsed controls visually checked. Final app build,
+packaged mock smoke and installed appearance are checked after this commit.
+
+H-070 acceptance: final extracted app archive passed its bundled-runtime and
+three-task approved mock workflow with verifier/integration evidence. Installed
+panel visually confirmed as a black 210×44-point Nova-logo pill, expanding to the
+small Work/Projects/Models panel. No paid generation was initiated. Collapsed
+status uses short labels to avoid clipping in the pill.

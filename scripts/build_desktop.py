@@ -41,12 +41,13 @@ def main() -> None:
         resources.mkdir()
         arch = "arm64" if platform.machine() == "arm64" else "x86_64"
         run(["swiftc", "-swift-version", "5", "-parse-as-library", "-O", "-target",
-             f"{arch}-apple-macos14.0", "apps/desktop/Nova.swift", "-o",
+             f"{arch}-apple-macos14.0", "apps/desktop/Nova.swift", "apps/desktop/Panel.swift", "-o",
              str(contents / "MacOS/Nova")], root)
         iconset = staging / "Nova.iconset"
         run(["swift", "apps/desktop/Icon.swift", str(iconset)], root)
         run(["iconutil", "-c", "icns", str(iconset), "-o", str(resources / "Nova.icns")], root)
         shutil.copy2(binary, resources / "nova")
+        shutil.copy2(root / "apps/desktop/NovaLogo.svg", resources / "NovaLogo.svg")
         runtime = resources / "runtime"
         run(["uv", "venv", "--offline", "--relocatable", "--python", sys.executable,
              str(runtime)], root)

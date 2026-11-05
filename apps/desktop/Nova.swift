@@ -199,6 +199,7 @@ struct Bridge {
       runCount = inventory.run_count
       connected = true
       settings = try Bridge.decode(Settings.self, await Bridge.call(["op": "settings"]))
+      if selectedRun == nil { selectedRun = runs.first }
       if let selected = selectedRun, let latest = runs.first(where: { $0.id == selected.id }) {
         selectedRun = latest
       }
@@ -286,7 +287,7 @@ struct StatePill: View {
 struct Card<Content: View>: View {
   @ViewBuilder let content: Content
   var body: some View {
-    VStack(alignment: .leading, spacing: 14) { content }.padding(20).frame(
+    VStack(alignment: .leading, spacing: 10) { content }.padding(14).frame(
       maxWidth: .infinity, alignment: .leading
     ).background(Color(nsColor: .controlBackgroundColor)).clipShape(
       RoundedRectangle(cornerRadius: 14)
@@ -294,476 +295,6 @@ struct Card<Content: View>: View {
   }
 }
 
-@main struct NovaDesktop: App {
-  @StateObject private var model = NovaModel()
-  var body: some Scene {
-    WindowGroup("Nova") {
-      Dashboard().environmentObject(model).frame(minWidth: 1000, minHeight: 700).tint(accent).task {
-        do { _ = try await Bridge.call(["op": "start"]) } catch {
-          model.error = error.localizedDescription
-        }
-        await model.refresh()
-      }.task {
-        while !Task.isCancelled {
-          try? await Task.sleep(nanoseconds: 4_000_000_000)
-          if !model.busy { await model.refresh() }
-        }
-      }
-    }.defaultSize(width: 1220, height: 820).commands { CommandGroup(replacing: .newItem) {} }
-  }
-}
-struct Dashboard: View {
-  @EnvironmentObject var model: NovaModel
-  @State private var projectForm = false
-  @State private var planForm = false
-  @State private var providerForm = false
-  @State private var executionReview = false
-  @State private var approveReview = false
-  @State private var cancelReview = false
-  var body: some View {
-    HStack(spacing: 0) {
-      VStack(alignment: .leading, spacing: 24) {
-        HStack(spacing: 10) {
-          Image(systemName: "sparkle").font(.title).foregroundStyle(accent)
-          Text("nova").font(.system(size: 29, weight: .bold, design: .rounded))
-        }.padding(.top, 18)
-        Text("YOUR AGENT WORKSPACE").font(.system(size: 9, weight: .semibold)).tracking(1.5)
-          .foregroundStyle(.secondary)
-        ForEach(
-          [
-            ("Overview", "square.grid.2x2"), ("Runs", "rectangle.stack"), ("Providers", "network"),
-            ("Model routes", "arrow.triangle.branch"),
-          ], id: \.0
-        ) { item in
-          Button {
-            model.section = item.0
-          } label: {
-            Label(item.0, systemImage: item.1).font(.system(size: 14, weight: .medium)).padding(11)
-              .frame(maxWidth: .infinity, alignment: .leading).background(
-                model.section == item.0 ? accent.opacity(0.1) : Color.clear
-              ).clipShape(RoundedRectangle(cornerRadius: 9))
-          }.buttonStyle(.plain).foregroundStyle(model.section == item.0 ? accent : .primary)
-        }
-        Spacer()
-        VStack(alignment: .leading, spacing: 8) {
-          Label(
-            model.connected ? "Local service connected" : "Service unavailable",
-            systemImage: model.connected ? "circle.fill" : "circle"
-          ).font(.caption).foregroundStyle(model.connected ? .green : .secondary)
-          Text(
-            "Nova runs locally. Live models receive task context. Closing this window leaves Nova running."
-          ).font(
-            .caption
-          ).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-        }
-      }.padding(22).frame(width: 220).background(Color(nsColor: .windowBackgroundColor))
-      Divider()
-      VStack(spacing: 0) {
-        HStack {
-          VStack(alignment: .leading, spacing: 4) {
-            Text(model.section).font(.system(size: 27, weight: .semibold))
-            Text(subtitle).font(.callout).foregroundStyle(.secondary)
-          }
-          Spacer()
-          if model.busy || model.refreshing { ProgressView().controlSize(.small) }
-          Button {
-            Task { await model.refresh() }
-          } label: {
-            Image(systemName: "arrow.clockwise")
-          }.help("Refresh persisted state")
-          primaryButton
-        }.padding(26)
-        Divider()
-        if let error = model.error {
-          HStack {
-            Image(systemName: "exclamationmark.triangle")
-            Text(error).font(.callout).textSelection(.enabled)
-            Spacer()
-            Button("Dismiss") { model.error = nil }
-          }.padding(14).background(Color.orange.opacity(0.1))
-        }
-        if let notice = model.notice {
-          HStack {
-            Image(systemName: "checkmark.circle")
-            Text(notice).font(.callout)
-            Spacer()
-            Button {
-              model.notice = nil
-            } label: {
-              Image(systemName: "xmark")
-            }
-          }.padding(12).background(Color.green.opacity(0.08))
-        }
-        ScrollView {
-          VStack(alignment: .leading, spacing: 20) {
-            switch model.section {
-            case "Providers": providers
-            case "Model routes": routes
-            case "Runs": runs
-            default: overview
-            }
-          }.padding(26).frame(maxWidth: .infinity, alignment: .leading)
-        }
-      }.background(Color(nsColor: .underPageBackgroundColor))
-    }.disabled(model.busy)
-      .sheet(isPresented: $projectForm) { ProjectForm().environmentObject(model) }
-      .sheet(isPresented: $planForm) { PlanForm().environmentObject(model) }
-      .sheet(isPresented: $providerForm) { ProviderForm().environmentObject(model) }
-      .sheet(isPresented: $executionReview) { ExecuteReview().environmentObject(model) }
-      .confirmationDialog(
-        "Approve this plan version?", isPresented: $approveReview, titleVisibility: .visible
-      ) {
-        Button("Approve reviewed plan") {
-          guard let run = model.selectedRun, let plan = model.plan else { return }
-          model.perform {
-            _ = try await Bridge.api("POST", "/v1/plans/\(run.id)/\(plan.version)/approve")
-            model.notice = "Plan approved. Execution still requires your separate action."
-          }
-        }
-      } message: {
-        Text(
-          "This authorizes the task scope and budgets shown below. No workers start until you choose Execute."
-        )
-      }
-      .confirmationDialog("Cancel this run?", isPresented: $cancelReview, titleVisibility: .visible)
-    {
-      Button("Cancel run", role: .destructive) { model.control("cancel") }
-    } message: {
-      Text(
-        "Queued tasks will be cancelled and active workers signalled. Retained branches and evidence remain available."
-      )
-    }
-  }
-  var subtitle: String {
-    switch model.section {
-    case "Providers": return "Connect accounts once. Keep credentials in your OS vault."
-    case "Model routes": return "Choose the model expertise each kind of task uses."
-    case "Runs": return "Follow tasks, approvals, and verified results."
-    default: return "A clear view of your projects and agent work."
-    }
-  }
-  @ViewBuilder var primaryButton: some View {
-    if model.section == "Providers" {
-      Button("Connect provider", systemImage: "plus") { providerForm = true }.buttonStyle(
-        .borderedProminent)
-    } else {
-      Button("Create task plan", systemImage: "plus") { planForm = true }.buttonStyle(
-        .borderedProminent
-      ).disabled(model.projects.isEmpty)
-    }
-  }
-  var overview: some View {
-    VStack(alignment: .leading, spacing: 20) {
-      HStack(spacing: 16) {
-        metric("Projects", value: String(model.projectCount), icon: "folder")
-        metric("Runs", value: String(model.runCount), icon: "rectangle.stack")
-        metric(
-          "Active on this page",
-          value: String(model.runs.filter { ["running", "paused"].contains($0.state) }.count),
-          icon: "waveform.path")
-        metric("Providers", value: String(model.settings?.providers.count ?? 0), icon: "network")
-      }
-      if model.projects.isEmpty {
-        Card {
-          Text("Start your first project").font(.title2.weight(.semibold))
-          Text(
-            "Choose a local Git repository, describe a task, and review its scope before starting agents."
-          ).foregroundStyle(.secondary)
-          Button("Add project", systemImage: "folder.badge.plus") { projectForm = true }
-            .buttonStyle(.borderedProminent)
-        }
-      }
-      HStack {
-        Text("Projects").font(.title3.weight(.semibold))
-        Spacer()
-        Button("Add project") { projectForm = true }
-      }
-      ForEach(model.projects) { project in
-        Card {
-          HStack {
-            Image(systemName: "folder").foregroundStyle(accent)
-            Text(project.name).font(.headline)
-            Spacer()
-            StatePill(state: project.trusted_local ? "trusted local" : "execution disabled")
-          }
-          Text(project.repo_path).font(.system(.caption, design: .monospaced)).foregroundStyle(
-            .secondary
-          ).textSelection(.enabled)
-        }
-      }
-      Text("Recent runs").font(.title3.weight(.semibold))
-      runList
-      if model.projects.count < model.projectCount || model.runs.count < model.runCount {
-        pagination
-      }
-    }
-  }
-  func metric(_ title: String, value: String, icon: String) -> some View {
-    Card {
-      HStack {
-        Text(title).font(.caption).foregroundStyle(.secondary)
-        Spacer()
-        Image(systemName: icon).foregroundStyle(accent)
-      }
-      Text(value).font(.system(size: 30, weight: .semibold, design: .rounded))
-    }
-  }
-  var runList: some View {
-    VStack(spacing: 10) {
-      if model.runs.isEmpty {
-        Card {
-          Text("No runs yet").font(.headline)
-          Text("Create a task plan to start a reviewable run.").foregroundStyle(.secondary)
-        }
-      }
-      ForEach(model.runs) { run in
-        Button {
-          model.select(run)
-        } label: {
-          HStack {
-            VStack(alignment: .leading, spacing: 5) {
-              Text(model.projects.first(where: { $0.id == run.project_id })?.name ?? run.project_id)
-                .font(.headline)
-              Text(String(run.id.prefix(12))).font(.system(.caption, design: .monospaced))
-                .foregroundStyle(.secondary)
-            }
-            Spacer()
-            StatePill(state: run.state)
-            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
-          }.padding(16).background(Color(nsColor: .controlBackgroundColor)).clipShape(
-            RoundedRectangle(cornerRadius: 10))
-        }.buttonStyle(.plain)
-      }
-    }
-  }
-  var pagination: some View {
-    HStack {
-      Button("Previous page") {
-        model.offset = max(0, model.offset - 100)
-        Task { await model.refresh() }
-      }.disabled(model.offset == 0)
-      Text("Showing page \(model.offset/100+1)").font(.caption).foregroundStyle(.secondary)
-      Button("Next page") {
-        model.offset += 100
-        Task { await model.refresh() }
-      }.disabled(model.offset + 100 >= max(model.projectCount, model.runCount))
-    }
-  }
-  var runs: some View {
-    VStack(alignment: .leading, spacing: 20) {
-      if let run = model.selectedRun {
-        Button("All runs", systemImage: "arrow.left") {
-          model.selectedRun = nil
-          model.evidence = nil
-        }
-        Card {
-          HStack {
-            VStack(alignment: .leading, spacing: 6) {
-              Text(model.projects.first(where: { $0.id == run.project_id })?.name ?? "Run").font(
-                .title2.weight(.semibold))
-              Text(run.id).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-            }
-            Spacer()
-            StatePill(state: run.state)
-          }
-          if let plan = model.plan {
-            Text(plan.plan.idea).font(.headline)
-            Text("Plan version \(plan.version) · \(plan.status)").font(.caption).foregroundStyle(
-              .secondary)
-          }
-          HStack {
-            if run.state == "awaiting_approval" {
-              Button("Approve plan") { approveReview = true }.buttonStyle(.borderedProminent)
-            }
-            if run.state == "running" {
-              Button("Execute…") { executionReview = true }.buttonStyle(.borderedProminent)
-              Button("Pause") { model.control("pause") }
-            }
-            if run.state == "paused" { Button("Resume eligibility") { model.control("resume") } }
-            if !["completed", "cancelled", "failed"].contains(run.state) {
-              Button("Cancel run", role: .destructive) { cancelReview = true }
-            }
-          }
-          Text(
-            "Pause prevents new assignments; current work can finish. Resume restores eligibility. Execute starts the worker loop."
-          ).font(.caption).foregroundStyle(.secondary)
-        }
-        let shown =
-          model.tasks.isEmpty
-          ? (model.plan?.plan.tasks.map {
-            TaskItem(id: $0.id, state: "proposed", attempt: 0, spec: $0)
-          } ?? []) : model.tasks
-        HStack {
-          Text("Tasks").font(.title3.weight(.semibold))
-          Spacer()
-          Text(
-            "\(model.tasks.filter{$0.state=="completed"}.count) / \(shown.count) verified and integrated"
-          ).font(.caption).foregroundStyle(.secondary)
-        }
-        ForEach(shown) { task in
-          Card {
-            HStack {
-              Text(task.spec.title).font(.headline)
-              Spacer()
-              StatePill(state: task.state)
-            }
-            Text(task.spec.description).foregroundStyle(.secondary)
-            HStack {
-              Label(task.spec.use_case ?? "coding", systemImage: "sparkle")
-              Text("Attempt \(task.attempt)")
-              Spacer()
-              Text(String(format: "Task cap $%.2f", task.spec.limits.cost_cap_usd))
-            }.font(.caption).foregroundStyle(.secondary)
-            Text(task.spec.candidate_paths.joined(separator: "\n")).font(
-              .system(.caption, design: .monospaced)
-            ).textSelection(.enabled)
-            DisclosureGroup("Acceptance commands") {
-              ForEach(Array(task.spec.acceptance.enumerated()), id: \.offset) { item in
-                Text(
-                  item.element.command.map { argvText($0) } ?? item.element.description
-                    ?? "Assertion"
-                ).font(.system(.caption, design: .monospaced)).frame(
-                  maxWidth: .infinity, alignment: .leading
-                ).textSelection(.enabled).padding(.top, 5)
-              }
-            }
-            Button("Inspect verification evidence") { model.inspect(task) }
-          }
-        }
-        if let evidence = model.evidence { evidenceCard(evidence) }
-        ForEach(model.approvals) { approval in
-          Card {
-            HStack {
-              Text("Command approval").font(.headline)
-              Spacer()
-              StatePill(state: approval.state)
-            }
-            Text("Task: \(approval.task_id)").font(.caption)
-            Text(
-              approval.action.operation + "\n" + approval.action.cwd + "\n"
-                + argvText(approval.action.argv)
-            ).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-            if approval.state == "pending" {
-              HStack {
-                Button("Approve exact action") { decide(approval, true) }
-                Button("Deny", role: .destructive) { decide(approval, false) }
-              }
-              Text(
-                "Applies only to this exact scoped action and attempt. A blocked task may still need a revised run."
-              ).font(.caption).foregroundStyle(.secondary)
-            }
-          }
-        }
-        Card {
-          Text("Usage & cost").font(.headline)
-          Text("Unknown measurements remain unknown. Listed costs are estimates.").font(.caption)
-            .foregroundStyle(.secondary)
-          Text(model.usage).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-        }
-        Card {
-          Text("Recorded activity").font(.headline)
-          Text("First 1,000 durable events in this run.").font(.caption).foregroundStyle(.secondary)
-          ForEach(model.events.suffix(100).reversed()) { event in
-            HStack {
-              Text("#\(event.sequence)").foregroundStyle(.tertiary).frame(
-                width: 45, alignment: .leading)
-              Text(event.task_id ?? "Run")
-              Spacer()
-              Text(event.to_state ?? event.kind ?? "Event").foregroundStyle(.secondary)
-            }.font(.caption)
-          }
-        }
-      } else {
-        runList
-        pagination
-      }
-    }
-  }
-  func decide(_ approval: ApprovalItem, _ approve: Bool) {
-    model.perform {
-      _ = try await Bridge.api(
-        "POST", "/v1/approvals/\(approval.id)/decision",
-        ["revision": approval.revision, "approved": approve])
-      model.notice = "Approval decision recorded."
-    }
-  }
-  func evidenceCard(_ evidence: Evidence) -> some View {
-    Card {
-      Text("Verification evidence").font(.headline)
-      if let commit = evidence.commit {
-        Text(
-          "Task commit: \(commit.task_commit_sha)\nIntegrated commit: \(commit.integration_commit_sha ?? "Not integrated")"
-        ).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-      } else {
-        Text("No task commit recorded.").foregroundStyle(.secondary)
-      }
-      if evidence.tests.isEmpty {
-        Text("No verifier results recorded.").foregroundStyle(.secondary)
-      }
-      ForEach(evidence.tests) { test in
-        HStack {
-          VStack(alignment: .leading) {
-            Text(argvText(test.command)).font(.system(.caption, design: .monospaced)).textSelection(
-              .enabled)
-            Text("\(test.duration_ms) ms").font(.caption).foregroundStyle(.secondary)
-          }
-          Spacer()
-          StatePill(
-            state: test.exit_code == 0 ? "passed" : test.exit_code == nil ? "unknown" : "failed")
-        }
-      }
-    }
-  }
-  var providers: some View {
-    VStack(alignment: .leading, spacing: 20) {
-      if model.settings?.providers.isEmpty ?? true {
-        Card {
-          Text("Bring your models together").font(.title2.weight(.semibold))
-          Text(
-            "Connect OpenAI, Claude, or an OpenAI-compatible endpoint. Nova discovers models without generating tokens."
-          ).foregroundStyle(.secondary)
-          Button("Connect your first provider") { providerForm = true }.buttonStyle(
-            .borderedProminent)
-        }
-      }
-      ForEach(model.settings?.providers ?? []) { provider in
-        ProviderCard(provider: provider).environmentObject(model)
-      }
-      Card {
-        Text("Model availability").font(.headline)
-        Text(
-          "Models need known prices, token limits, and structured output support. Unknown metadata stays unavailable. Configure additional metadata with nova models configure."
-        ).font(.callout).foregroundStyle(.secondary)
-        ForEach(model.settings?.models ?? []) { item in
-          HStack {
-            VStack(alignment: .leading, spacing: 4) {
-              Text(item.id).font(.system(.callout, design: .monospaced))
-              Text(item.source).font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer()
-            StatePill(state: item.ready ? "ready" : "needs metadata")
-          }
-        }
-      }
-    }
-  }
-  var routes: some View {
-    VStack(alignment: .leading, spacing: 20) {
-      Card {
-        Text("Choose by use case").font(.title2.weight(.semibold))
-        Text(
-          "Pin a use case to a model. Unpinned tasks use the saved complexity and risk defaults; Nova does not benchmark expertise automatically."
-        ).foregroundStyle(.secondary)
-        Text(
-          String(
-            format: "Default run cap $%.2f · Daily cap $%.2f", model.settings?.run_cap_usd ?? 5,
-            model.settings?.daily_cap_usd ?? 10)
-        ).font(.caption)
-      }
-      ForEach(useCases, id: \.self) { role in RouteRow(role: role).environmentObject(model) }
-    }
-  }
-}
 func argvText(_ argv: [String]) -> String {
   argv.map { "\"" + $0.replacingOccurrences(of: "\"", with: "\\\"") + "\"" }.joined(separator: " ")
 }
@@ -873,7 +404,7 @@ struct ProjectForm: View {
         }.buttonStyle(.borderedProminent).disabled(
           name.trimmingCharacters(in: .whitespaces).isEmpty || path.isEmpty)
       }
-    }.padding(28).frame(width: 590)
+    }.padding(28).frame(width: 420)
   }
 }
 struct ProviderForm: View {
@@ -940,7 +471,7 @@ struct ProviderForm: View {
           dismiss()
         }.buttonStyle(.borderedProminent).disabled(key.isEmpty || name.isEmpty || endpoint.isEmpty)
       }
-    }.padding(28).frame(width: 610).onDisappear { key = "" }
+    }.padding(28).frame(width: 420).onDisappear { key = "" }
   }
 }
 struct TaskDraft: Identifiable {
@@ -978,119 +509,104 @@ struct PlanForm: View {
   @State var drafts = [TaskDraft()]
   @State var selected = 0
   var body: some View {
-    VStack(alignment: .leading, spacing: 16) {
-      SheetHeader(
-        title: "Create a task plan",
-        subtitle:
-          "Describe the scope and exact acceptance for each task. Nova saves a draft for your review."
-      )
+    VStack(alignment: .leading, spacing: 12) {
+      Text("New task plan").font(.headline)
       Picker("Project", selection: $project) {
         Text("Choose a project").tag("")
         ForEach(model.projects) { Text($0.name).tag($0.id) }
       }
-      TextField("Overall goal (at least 5 characters)", text: $idea).textFieldStyle(.roundedBorder)
-      HStack(alignment: .top, spacing: 20) {
-        VStack(alignment: .leading, spacing: 10) {
-          Text("TASKS").font(.caption).foregroundStyle(.secondary)
-          ForEach(Array(drafts.enumerated()), id: \.element.id) { index, draft in
-            Button {
-              selected = index
-            } label: {
-              HStack {
-                Text("\(index+1). \(draft.title.isEmpty ? "New task" : draft.title)").lineLimit(2)
-                Spacer()
-                if selected == index { Image(systemName: "chevron.right") }
-              }.padding(9).frame(maxWidth: .infinity, alignment: .leading).background(
-                selected == index ? accent.opacity(0.1) : Color.clear
-              ).clipShape(RoundedRectangle(cornerRadius: 7))
-            }.buttonStyle(.plain)
-          }
-          Button("Add task", systemImage: "plus") {
-            drafts.append(TaskDraft())
-            selected = drafts.count - 1
-          }
-          Spacer()
-        }.frame(width: 190)
-        Divider()
-        ScrollView {
-          VStack(alignment: .leading, spacing: 14) {
-            TextField("Task title", text: $drafts[selected].title).textFieldStyle(.roundedBorder)
-            Text("What should this task do?").font(.caption.weight(.semibold))
-            TextEditor(text: $drafts[selected].description).font(.body).frame(height: 75).overlay(
-              RoundedRectangle(cornerRadius: 5).stroke(.quaternary))
-            HStack {
-              Picker("Use case", selection: $drafts[selected].useCase) {
-                ForEach(useCases, id: \.self) { Text($0.capitalized).tag($0) }
-              }
-              Picker("Complexity", selection: $drafts[selected].complexity) {
-                ForEach(["low", "medium", "high"], id: \.self) { Text($0.capitalized).tag($0) }
-              }
-              Picker("Risk", selection: $drafts[selected].risk) {
-                ForEach(["low", "medium", "high"], id: \.self) { Text($0.capitalized).tag($0) }
-              }
-            }
-            Text("Allowed file paths / patterns · one per line").font(.caption.weight(.semibold))
-            TextEditor(text: $drafts[selected].paths).font(.system(.callout, design: .monospaced))
-              .frame(height: 65).overlay(RoundedRectangle(cornerRadius: 5).stroke(.quaternary))
-            Text("Acceptance command · program first, then ONE argument per line").font(
-              .caption.weight(.semibold))
-            TextEditor(text: $drafts[selected].arguments).font(
-              .system(.callout, design: .monospaced)
-            ).frame(height: 85).overlay(RoundedRectangle(cornerRadius: 5).stroke(.quaternary))
-            Text(
-              "Arguments are passed literally. Do not paste a shell command or add shell quoting. Example: python3 ↵ -m ↵ pytest ↵ -q"
-            ).font(.caption).foregroundStyle(.secondary)
-            HStack {
-              TextField("Task spend cap (USD)", value: $drafts[selected].cost, format: .number)
-                .textFieldStyle(.roundedBorder)
-              if selected > 0 { Toggle("After previous task", isOn: $drafts[selected].sequential) }
-            }
-            if drafts.count > 1 {
-              Button("Remove this task", role: .destructive) {
-                drafts.remove(at: selected)
-                selected = min(selected, drafts.count - 1)
-              }
-            }
-          }.padding(.trailing, 5)
+      TextField("Overall goal", text: $idea).textFieldStyle(.roundedBorder)
+      HStack {
+        Text("Task \(selected+1) of \(drafts.count)").font(.caption.weight(.semibold))
+        Spacer()
+        Button {
+          selected -= 1
+        } label: {
+          Image(systemName: "chevron.left")
+        }.disabled(selected == 0)
+        Button {
+          selected += 1
+        } label: {
+          Image(systemName: "chevron.right")
+        }.disabled(selected >= drafts.count - 1)
+        Button("Add") {
+          drafts.append(TaskDraft())
+          selected = drafts.count - 1
         }
-      }.frame(height: 440)
-      Text(
-        "This is your authored plan. It does not call a model to decompose the goal. Submission, approval, and execution are separate steps. Default task limits: 100 tools, 16,000 output tokens, 15 minutes."
-      ).font(.caption).foregroundStyle(.secondary)
+      }.controlSize(.small)
+      ScrollView {
+        VStack(alignment: .leading, spacing: 10) {
+          TextField("Task title", text: $drafts[selected].title).textFieldStyle(.roundedBorder)
+          Text("Description").font(.caption)
+          TextEditor(text: $drafts[selected].description).font(.callout).frame(height: 60).overlay(
+            RoundedRectangle(cornerRadius: 5).stroke(.quaternary))
+          Picker("Use case", selection: $drafts[selected].useCase) {
+            ForEach(useCases, id: \.self) { Text($0.capitalized).tag($0) }
+          }
+          HStack {
+            Picker("Complexity", selection: $drafts[selected].complexity) {
+              ForEach(["low", "medium", "high"], id: \.self) { Text($0).tag($0) }
+            }
+            Picker("Risk", selection: $drafts[selected].risk) {
+              ForEach(["low", "medium", "high"], id: \.self) { Text($0).tag($0) }
+            }
+          }
+          Text("Allowed paths · one per line").font(.caption)
+          TextEditor(text: $drafts[selected].paths).font(.system(.caption, design: .monospaced))
+            .frame(height: 50).overlay(RoundedRectangle(cornerRadius: 5).stroke(.quaternary))
+          Text("Test command · program, then one argument per line").font(.caption)
+          TextEditor(text: $drafts[selected].arguments).font(.system(.caption, design: .monospaced))
+            .frame(height: 65).overlay(RoundedRectangle(cornerRadius: 5).stroke(.quaternary))
+          Text("Literal arguments; no shell quoting.").font(.caption2).foregroundStyle(.secondary)
+          TextField("Spend cap (USD)", value: $drafts[selected].cost, format: .number)
+            .textFieldStyle(.roundedBorder)
+          if selected > 0 {
+            Toggle("Run after previous task", isOn: $drafts[selected].sequential).font(.caption)
+          }
+          if drafts.count > 1 {
+            Button("Remove task", role: .destructive) {
+              drafts.remove(at: selected)
+              selected = min(selected, drafts.count - 1)
+            }.controlSize(.small)
+          }
+        }
+      }
+      Text("Your authored plan. Save → review → approve → execute.").font(.caption2)
+        .foregroundStyle(.secondary)
       HStack {
         Button("Cancel") { dismiss() }
         Spacer()
-        Text(String(format: "Total task caps: $%.2f", drafts.reduce(0) { $0 + $1.cost })).font(
-          .caption)
-        Button("Save plan for review") {
-          let tasks = drafts.enumerated().map { index, draft in
-            draft.proposal(previous: index > 0 ? drafts[index - 1].id : nil)
-          }
-          let plan: [String: Any] = [
-            "schema_version": "1.0", "project_id": project, "idea": idea, "requirements": [idea],
-            "assumptions": ["Task scope and acceptance were authored by the operator."],
-            "architecture": [
-              "recommended": "Scoped changes within the existing repository architecture.",
-              "alternatives": [],
-              "risks": ["Local repository commands execute with user permissions."],
-            ], "tasks": tasks,
-          ]
-          model.perform {
-            let data = try await Bridge.call(["op": "create_plan", "plan": plan])
-            let value = try JSONSerialization.jsonObject(with: data) as! [String: Any]
-            let run = try JSONSerialization.data(withJSONObject: value["run"]!)
-            var item = try Bridge.decode(RunItem.self, run)
-            item = RunItem(
-              id: item.id, project_id: item.project_id, state: "awaiting_approval",
-              revision: item.revision + 1, plan_version: 1)
-            model.select(item)
-            model.notice = "Plan saved. Review each task before approving."
-          }
-          dismiss()
-        }.buttonStyle(.borderedProminent).disabled(
+        Button("Save draft") { save() }.buttonStyle(.borderedProminent).disabled(
           project.isEmpty || idea.count < 5 || !drafts.allSatisfy { $0.valid })
       }
-    }.padding(28).frame(width: 900).onAppear { project = model.projects.first?.id ?? "" }
+    }.padding(18).frame(width: 440, height: 560).onAppear {
+      project = model.projects.first?.id ?? ""
+    }
+  }
+  func save() {
+    let tasks = drafts.enumerated().map { index, draft in
+      draft.proposal(previous: index > 0 ? drafts[index - 1].id : nil)
+    }
+    let plan: [String: Any] = [
+      "schema_version": "1.0", "project_id": project, "idea": idea, "requirements": [idea],
+      "assumptions": ["Task scope and acceptance authored by operator."],
+      "architecture": [
+        "recommended": "Scoped changes within the existing repository architecture.",
+        "alternatives": [], "risks": ["Local code runs with user permissions."],
+      ], "tasks": tasks,
+    ]
+    model.perform {
+      let data = try await Bridge.call(["op": "create_plan", "plan": plan])
+      let value = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+      let run = try JSONSerialization.data(withJSONObject: value["run"]!)
+      let item = try Bridge.decode(RunItem.self, run)
+      model.select(
+        RunItem(
+          id: item.id, project_id: item.project_id, state: "awaiting_approval",
+          revision: item.revision + 1, plan_version: 1))
+      model.notice = "Draft saved. Review, then approve."
+    }
+    dismiss()
   }
 }
 struct ExecuteReview: View {
@@ -1140,6 +656,14 @@ struct ExecuteReview: View {
           model.settings?.run_cap_usd ?? 5, model.settings?.daily_cap_usd ?? 10)
       ).font(.caption).foregroundStyle(.secondary)
       Toggle("I authorize these exact test commands and this execution mode", isOn: $acknowledged)
+      if live && !(model.settings?.models.contains { $0.ready } ?? false) {
+        Text("No ready model. Add verified pricing/capabilities in Models before live execution.")
+          .font(.caption).foregroundStyle(.orange)
+      }
+      if !acknowledged {
+        Text("Confirm the test commands to enable Start.").font(.caption2).foregroundStyle(
+          .secondary)
+      }
       HStack {
         Button("Cancel") { dismiss() }
         Spacer()
@@ -1156,6 +680,6 @@ struct ExecuteReview: View {
         }.buttonStyle(.borderedProminent).disabled(
           !acknowledged || (live && !(model.settings?.models.contains { $0.ready } ?? false)))
       }
-    }.padding(28).frame(width: 720)
+    }.padding(28).frame(width: 440)
   }
 }
