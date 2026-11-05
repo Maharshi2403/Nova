@@ -50,7 +50,7 @@ def main() -> None:
             while not (data / "daemon.json").exists():
                 assert daemon.poll() is None and time.monotonic() < deadline
                 time.sleep(0.05)
-            project = call("init", str(repo), "--name", "offline fixture")
+            project = call("init", str(repo), "--name", "offline fixture", "--trust-local")
             run = call("run", project["id"])
             tasks, commands = [], []
             for n in range(args.tasks):

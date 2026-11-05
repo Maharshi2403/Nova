@@ -1,6 +1,6 @@
 # Implementation progress
 
-Latest completed ticket: H-056 — durable scoped approvals.
+Latest completed ticket: H-057 — explicit execution trust boundary.
 Prior implementation: H-001..H-044 appear in Git history; their original platform
 evidence has not been independently audited. Current stage: G5.
 
@@ -171,5 +171,17 @@ commands are implemented; workers receive no API bearer token.
 Store approvals (1), runtime approval_policy (1), broker_command (7), engine (1),
 daemon API (11) PASS; workspace Clippy/format/diff PASS. Credential-like argv is
 rejected rather than persisted. Next: H-057 explicit trust/isolation policy.
+
+## H-057 verification
+
+New/existing projects default to untrusted. Registration avoids Git before explicit
+trust; `init --trust-local` records the authenticated local-user decision and checks
+a clean Git repository. Engine refuses untrusted execution without a real sandbox.
+Added capability/adapter interface and documented that this release ships no hard
+isolation backend. Sandbox (2), engine (1), daemon API (11) tests PASS; workspace
+Clippy/format/diff PASS. Windows execution is still unverified locally.
+
+Before H-058, finish the newly documented H-043b/c backfill for live worker wiring;
+the original adapter alone did not implement live coding through the daemon.
 The original three untracked handoff documents are intentionally excluded from
 the feature commit and left unchanged.

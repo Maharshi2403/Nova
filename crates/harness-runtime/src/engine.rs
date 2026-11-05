@@ -74,6 +74,16 @@ impl Engine {
             return Err("absolute Python executable, exact test argv approvals and concurrency 1..2 required".into());
         }
         let record = store.get_run(&run).await.map_err(|e| e.to_string())?;
+        let trust = if store
+            .project_is_trusted(&record.project_id)
+            .await
+            .map_err(|e| e.to_string())?
+        {
+            crate::sandbox::Trust::TrustedLocal
+        } else {
+            crate::sandbox::Trust::Untrusted
+        };
+        crate::sandbox::authorize(trust, None).map_err(str::to_owned)?;
         if record.state != RunState::Running {
             return Err("run is not approved and running".into());
         }

@@ -13,6 +13,7 @@ pub mod pool;
 pub mod priority;
 pub mod readiness;
 pub mod recovery;
+pub mod sandbox;
 pub mod scheduler;
 pub mod supervisor;
 pub mod verifier;

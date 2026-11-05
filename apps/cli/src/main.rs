@@ -44,6 +44,9 @@ enum Command {
         repo: PathBuf,
         #[arg(long)]
         name: String,
+        /// Authorize unsandboxed execution of this trusted local repository.
+        #[arg(long)]
+        trust_local: bool,
     },
     Plan {
         run_id: String,
@@ -145,10 +148,14 @@ fn execute(cli: Cli) -> Result<String, CliError> {
                 serde_json::from_str(&commands).map_err(CliError::DiscoveryJson)?;
             client.request("POST", &format!("/v1/runs/{run_id}/execute"), Some(serde_json::json!({"python":python, "allowed_test_commands":commands, "concurrency":concurrency})))?
         }
-        Command::Init { repo, name } => client.request(
+        Command::Init {
+            repo,
+            name,
+            trust_local,
+        } => client.request(
             "POST",
             "/v1/projects",
-            Some(serde_json::json!({"name": name, "repo_path": repo})),
+            Some(serde_json::json!({"name": name, "repo_path": repo, "trusted_local":trust_local})),
         )?,
         Command::Plan { run_id, file } => {
             let plan = std::fs::read_to_string(file).map_err(CliError::Input)?;

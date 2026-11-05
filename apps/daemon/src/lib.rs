@@ -238,6 +238,8 @@ async fn require_bearer(
 struct CreateProjectRequest {
     name: String,
     repo_path: String,
+    #[serde(default)]
+    trusted_local: bool,
 }
 
 #[derive(Serialize)]
@@ -344,7 +346,13 @@ async fn create_project(
     State(state): State<ApiState>,
     Json(request): Json<CreateProjectRequest>,
 ) -> ApiResult<ProjectResponse> {
-    let trusted = register_repo(&request.repo_path).await.map_err(|error| {
+    let root = if request.trusted_local {
+        register_repo(&request.repo_path).await.map(|r| r.root)
+    } else {
+        // Do not invoke Git or repository helpers before the user's trust decision.
+        harness_runtime::git::validate_repo_path(&request.repo_path)
+    }
+    .map_err(|error| {
         api_error(
             StatusCode::UNPROCESSABLE_ENTITY,
             "invalid_repository",
@@ -354,7 +362,7 @@ async fn create_project(
     let project = Project::new(
         ProjectId::new(Uuid::new_v4().to_string()).expect("UUID is a valid project id"),
         request.name,
-        trusted.root.display().to_string(),
+        root.display().to_string(),
     )
     .map_err(|error| {
         api_error(
@@ -368,6 +376,17 @@ async fn create_project(
         .create_project(&project)
         .await
         .map_err(|error| api_error(StatusCode::CONFLICT, "project_conflict", error.to_string()))?;
+    state
+        .store
+        .set_project_trust(&project.id, request.trusted_local)
+        .await
+        .map_err(|_| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "trust_write_failed",
+                "could not record trust decision",
+            )
+        })?;
     Ok((
         StatusCode::CREATED,
         Json(ProjectResponse {

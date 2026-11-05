@@ -32,6 +32,8 @@ async fn real_worker_broker_verifier_commit_and_integration() {
     )
     .unwrap();
     store.create_project(&p).await.unwrap();
+    assert!(!store.project_is_trusted(&p.id).await.unwrap());
+    store.set_project_trust(&p.id, true).await.unwrap();
     let run = Run::new(RunId::new("r").unwrap(), p.id);
     store.create_run(&run).await.unwrap();
     let python =

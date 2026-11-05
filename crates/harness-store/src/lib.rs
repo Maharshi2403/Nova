@@ -13,6 +13,7 @@ pub mod git_artifacts;
 pub mod leases;
 pub mod plans;
 pub mod repository;
+pub mod trust;
 pub mod usage;
 pub mod verification;
 
