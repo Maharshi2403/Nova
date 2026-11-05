@@ -418,3 +418,23 @@ visually inspected. Desktop bridge tests 2 passed including a complete reviewed,
 approved, verified/integrated mock task and key/header-injection rejection. Daemon
 API tests 15 passed, Git repository tests 6 passed, workspace Clippy passed.
 Next H-068: `nova ui`, durable application packaging/install and final smoke.
+
+## H-068 — desktop distribution and Nova UI launch
+
+Added `nova ui` / `nova ui --print-path`, native bundle discovery and macOS launch,
+a vector application icon, locked intelligence runtime in Nova.app, local desktop
+ZIP/checksum generation, and user-local installer retaining previous app/CLI builds.
+The bundle's CLI can locate its sibling runtime without losing the venv entry path.
+The GUI uses the same permanent Nova state as the CLI; closing it does not stop work.
+No hosted GUI, paid generation, signing or notarization was performed.
+
+Validation: full Rust workspace tests passed; scoped provider settings 4 passed;
+workspace Clippy and Rust formatting passed. Native SwiftUI compilation at macOS
+14 minimum and fresh bundled wheel/runtime version checks passed. Vector icon
+render and ICNS validation passed. Python packaging script Ruff passed. Final
+artifact workflow smoke/install is performed after this source commit.
+
+Operator preview setup was adopted into the permanent user Nova directory after
+confirming the main state had zero projects/runs/providers and both services were
+idle. The previous empty state was retained as a backup; a compatibility symlink
+keeps the preview window connected. No provider key was printed or placed in argv.

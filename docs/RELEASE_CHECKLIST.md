@@ -64,3 +64,13 @@ Replace PYTHON with `runtime/bin/python` on Unix or `runtime/Scripts/python.exe`
 Windows. Add `--offline` when caches are prepared. Run `bin/harnessd` with a dedicated
 private `--data-dir`, and pass this venv's absolute Python path to `nova execute`.
 The compiled binaries and Python wheel both report version 0.1.0.
+
+## Local macOS desktop candidate
+
+After the native release build, run `intelligence/.venv/bin/python scripts/build_desktop.py`.
+The separate Nova-desktop ZIP contains Nova.app, a bundled CLI and a locked
+intelligence venv. It requires the configured installed base Python and is not
+a portable Python distribution. The build renders the native vector app mark
+without external image assets. `scripts/install_desktop.py` installs under the
+current user's Applications/bin folders and retains prior versions. No signing,
+notarization, publishing or paid-provider smoke is implied.

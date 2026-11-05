@@ -2,7 +2,7 @@
 
 Rust owns task state, scheduling, budgets, permissions, verification and Git
 integration. Python proposes plans and coding actions through versioned JSONL.
-The CLI talks to an authenticated loopback daemon. Tauri UI is deferred.
+The CLI and native macOS dashboard talk to an authenticated loopback daemon.
 
 The offline runtime and opt-in live coder are implemented. Local macOS tests pass;
 Windows and hosted release gates require CI evidence before release. See
@@ -42,6 +42,9 @@ nova
 `nova` starts the service in the background or connects if it is already running.
 `nova start` does the same thing. `nova stop` safely stops an idle service; active
 runs must finish or be paused/cancelled first. `nova --help` lists the commands.
+Use `nova ui` to open the native management window after installing the desktop
+bundle; see [desktop setup](docs/DESKTOP.md). It includes guided project/task-plan
+forms, provider setup, model routes, progress, approvals, costs and evidence.
 No agents or paid provider calls start automatically. No separate daemon binary
 is needed to use the installed Nova command.
 
@@ -52,7 +55,8 @@ or deleted automatically. The `harness` binary remains a compatibility alias.
 
 Register with `nova init /absolute/repo --name Demo --trust-local` only when you
 authorize unsandboxed execution of that repository's code. Omitting the flag creates
-an untrusted project that cannot execute. Worktrees are not OS sandboxes.
+an untrusted project that cannot execute. Projects can be added with uncommitted
+changes; commit or stash those changes before execution. Worktrees are not OS sandboxes.
 
 See [operator workflows](docs/OPERATIONS.md), [configuration](docs/CONFIGURATION.md),
 [trust boundary](docs/TRUST_BOUNDARY.md), and [control API](docs/CONTROL_API.md).

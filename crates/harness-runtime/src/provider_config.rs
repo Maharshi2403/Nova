@@ -287,9 +287,12 @@ impl ProviderStore {
     pub fn python(&self, explicit: Option<PathBuf>) -> Result<PathBuf, String> {
         let saved = self.load()?.python;
         let bundle = std::env::current_exe().ok().and_then(|p| {
-            p.parent()?
-                .parent()
-                .map(|p| crate::engine::default_python(&p.join("runtime")))
+            let parent = p.parent()?;
+            [Some(parent), parent.parent()]
+                .into_iter()
+                .flatten()
+                .map(|root| crate::engine::default_python(&root.join("runtime")))
+                .find(|python| python.is_file())
         });
         let source = crate::engine::default_python(
             &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../intelligence/.venv"),

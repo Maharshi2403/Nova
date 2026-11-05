@@ -40,3 +40,26 @@ a revised run; approving a command does not automatically replay an uncertain ta
 Current GUI scope is macOS 14+. Windows/Linux retain the CLI and control API;
 no cross-platform desktop GUI is claimed. Packaging/launch instructions are added
 with the desktop distribution ticket. Paid-provider and hosted platform gates remain.
+
+## Build, install and open
+
+```sh
+cargo build --release --locked --offline --workspace
+intelligence/.venv/bin/python scripts/build_desktop.py
+intelligence/.venv/bin/python scripts/install_desktop.py
+nova ui
+```
+
+The build needs the macOS SDK, installed base Python >=3.12, and a warm uv cache.
+It creates `dist/Nova.app` and a desktop ZIP/checksum with a locked intelligence
+venv and CLI inside. This is a local unsigned candidate, not a notarized public
+release. Its venv depends on the configured installed base Python/stdlib; the ZIP
+is not a standalone Python distribution for an arbitrary other Mac.
+
+The installer copies Nova.app into `~/Applications`, updates `~/.local/bin/nova`,
+and retains previous app/CLI versions. It does not change providers/projects or
+start workers. Open Nova from Applications or `nova ui`; `nova ui --print-path`
+shows the selected bundle without launching. A custom state folder is supported
+with `nova --daemon-dir PATH ui`. Direct app launch uses Nova's normal user state.
+The window is independent of the service, and the bundled CLI locates its own
+intelligence runtime. Existing explicitly saved Python paths remain respected.

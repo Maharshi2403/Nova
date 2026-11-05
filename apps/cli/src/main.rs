@@ -6,6 +6,7 @@ use clap::{Parser, Subcommand};
 mod desktop;
 mod providers;
 mod startup;
+mod ui;
 
 /// Nova — your local coding-agent harness. Run `nova` to get started.
 #[derive(Parser, Debug)]
@@ -23,6 +24,11 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
+    /// Open the native macOS management dashboard.
+    Ui {
+        #[arg(long)]
+        print_path: bool,
+    },
     #[command(name = "__desktop-request", hide = true)]
     DesktopRequest,
     Providers {
@@ -183,6 +189,9 @@ fn main() {
 fn execute(cli: Cli) -> Result<String, CliError> {
     let data_dir = cli.daemon_dir.map(Ok).unwrap_or_else(default_data_dir)?;
     let command = cli.command.unwrap_or(Command::Start);
+    if let Command::Ui { print_path } = command {
+        return ui::launch(&data_dir, print_path);
+    }
     if matches!(command, Command::DesktopRequest) {
         return desktop::request(&data_dir);
     }
@@ -206,7 +215,8 @@ fn execute(cli: Cli) -> Result<String, CliError> {
     };
     let client = Client::from_data_dir(&data_dir)?;
     let response = match command {
-        Command::DesktopRequest
+        Command::Ui { .. }
+        | Command::DesktopRequest
         | Command::Routes { .. }
         | Command::Providers { .. }
         | Command::Models { .. }

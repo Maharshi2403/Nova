@@ -1,10 +1,9 @@
-# Control API v1 and future desktop client
+# Control API v1 and native desktop client
 
 The daemon binds loopback. `daemon.json` holds the port; `api-token` holds a random
 credential. All /v1 routes require Authorization: Bearer TOKEN. Health returns only
 minimal status. Origin-bearing/cross-site browser requests are denied; there is no
-permissive CORS. A future desktop client needs native authenticated transport and
-must not put tokens in URLs/logs. Workers never receive this credential.
+permissive CORS. The native desktop uses authenticated CLI stdin transport and never puts tokens in URLs/logs. Workers never receive this credential.
 
 JSON rejects unknown fields. Typical statuses: 422 invalid values/plan; 409 stale
 revision/conflict; 404 missing resource; 401 auth; 403 hostile origin; 429 event
@@ -38,7 +37,7 @@ capacity bound memory; no unbounded in-memory fan-out exists.
 
 A worker's completed message is a claim. Displays must use durable state and
 verifier/commit/integration evidence. Revisions are compare-and-set: reload on 409.
-Tauri UI, OS sandbox backends, remote hosting and automatic deployment are deferred.
+Windows/Linux desktop UI, OS sandbox backends, remote hosting and automatic deployment are deferred.
 Any future client must preserve Rust state authority and this trust boundary.
 
 Native dashboard additions: GET `/v1/dashboard?offset=0&limit=100` returns
@@ -46,3 +45,7 @@ newest-first projects/runs with total counts (limit 1..200); projects include th
 persisted trusted-local decision. GET `/v1/tasks/{run}/{task}/evidence` returns
 recorded verifier command/exit/duration and task/integration commit identities.
 Both require the same bearer authentication and reject browser-origin requests.
+
+Dashboard runs include their latest immutable `plan_version` when available.
+Trusted project import checks the Git root/base but permits uncommitted changes;
+execution still enforces a clean checkout.
