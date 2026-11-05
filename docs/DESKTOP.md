@@ -75,3 +75,11 @@ shows the selected bundle without launching. A custom state folder is supported
 with `nova --daemon-dir PATH ui`. Direct app launch uses Nova's normal user state.
 The window is independent of the service, and the bundled CLI locates its own
 intelligence runtime. Existing explicitly saved Python paths remain respected.
+
+The task editor no longer pre-fills pytest for every repository. For documentation,
+enter the allowed output folder and choose **Use documentation check**. The bundled
+stdlib-only checker requires Markdown under those paths, at least 300 words, three
+sections, a fenced Mermaid diagram, architecture/system-design text, and future
+improvements or a roadmap. It reads only files inside the task worktree and has
+file/byte limits. These are basic artifact checks, not a guarantee of prose quality.
+Other tasks need an appropriate explicit test argv; no test framework is assumed.

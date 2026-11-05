@@ -100,3 +100,13 @@ excluded. Persist/audit the selected revision and reuse it on resume. Keep proje
 trust, approved plans, exact test argv, provider grants and budgets enforced. Verify
 normal denial and successful snapshot execution with dirty files retained byte-for-
 byte, and refresh/install the actual desktop runtime. No paid test generation.
+
+## H-072 — documentation acceptance correction
+
+While reproducing H-071, confirmed the authored documentation task inherited the
+UI's generic pytest argv, but its system interpreter has no pytest. Replace that
+misleading default with an empty explicit acceptance and add a stdlib-only native
+Documentation check preset. Validate Markdown artifacts, system-design Mermaid
+and improvement/roadmap sections under selected paths. Bundle the checker and test
+positive/negative cases without model calls. Prepare a corrected reviewable draft
+with intended Documents/Nova scope; never mutate/auto-approve the old plan.

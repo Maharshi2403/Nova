@@ -502,3 +502,18 @@ view containing committed content, strict-mode rejection, trust/approval rejecti
 source pin idempotence, launch audit, verifier success and integrated commits.
 Workspace Clippy/format and native Swift compilation passed. No paid model calls.
 Final packaged-app dirty-source smoke and installation follow this source commit.
+
+## H-072 — remove invalid pytest default for documentation tasks
+
+Confirmed the saved documentation plan inherited python3 -m pytest -q while the
+system interpreter has no pytest. The task editor now starts with empty explicit
+acceptance and offers a bundled stdlib-only Documentation check preset. It appends
+its artifact requirements to the task description and checks scoped Markdown,
+minimum content/sections, Mermaid and architecture/improvement text. It excludes
+external/symlink files and bounds input. Existing approved plans remain immutable;
+a corrected reviewable draft is prepared after installation, with no paid execution.
+
+Validation: three positive/negative/external-file stdlib tests passed; script CI
+format/lint passed; native Swift compilation passed. CI and operator checks now
+include the checker tests. Desktop packaging scripts were formatted to their CI
+configuration. Final bundled-checker acceptance and install follow this commit.

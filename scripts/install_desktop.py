@@ -3,6 +3,7 @@
 Run after scripts/build_desktop.py. Does not modify provider/project state, launch
 agents, approve tasks or make provider requests. Requires write access to your home.
 """
+
 from __future__ import annotations
 
 import os

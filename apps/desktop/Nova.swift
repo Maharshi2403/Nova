@@ -479,7 +479,7 @@ struct ProviderForm: View {
 }
 struct TaskDraft: Identifiable {
   var id = "task-" + UUID().uuidString.lowercased().prefix(8), title = "", description = "",
-    paths = "", arguments = "python3\n-m\npytest\n-q", useCase = "coding", complexity = "medium",
+    paths = "", arguments = "", useCase = "coding", complexity = "medium",
     risk = "low", cost = 0.5, sequential = true
   var argv: [String] { arguments.components(separatedBy: "\n").filter { !$0.isEmpty } }
   var scope: [String] {
@@ -560,6 +560,23 @@ struct PlanForm: View {
           Text("Test command · program, then one argument per line").font(.caption)
           TextEditor(text: $drafts[selected].arguments).font(.system(.caption, design: .monospaced))
             .frame(height: 65).overlay(RoundedRectangle(cornerRadius: 5).stroke(.quaternary))
+          Button("Use documentation check") {
+            let resource = Bundle.main.resourceURL!
+            let rubric =
+              "\nDocumentation acceptance: create Markdown under the assigned paths, with at least 300 words, three sections, a fenced Mermaid system-design diagram, and an architecture explanation plus future improvements or roadmap."
+            if !drafts[selected].description.contains("Documentation acceptance:") {
+              drafts[selected].description += rubric
+            }
+
+            drafts[selected].arguments =
+              ([
+                resource.appendingPathComponent("runtime/bin/python").path,
+                resource.appendingPathComponent("verify_documentation.py").path,
+              ] + drafts[selected].scope).joined(separator: "\n")
+          }.controlSize(.small).disabled(drafts[selected].scope.isEmpty)
+          Text("Documentation preset checks Markdown, a Mermaid diagram and a roadmap.").font(
+            .caption2
+          ).foregroundStyle(.secondary)
           Text("Literal arguments; no shell quoting.").font(.caption2).foregroundStyle(.secondary)
           TextField("Spend cap (USD)", value: $drafts[selected].cost, format: .number)
             .textFieldStyle(.roundedBorder)
@@ -691,6 +708,6 @@ struct ExecuteReview: View {
         }.buttonStyle(.borderedProminent).disabled(
           !acknowledged || (live && !(model.settings?.models.contains { $0.ready } ?? false)))
       }
-    }.padding(28).frame(width: 440)
+    }.padding(18).frame(width: 440, height: 580)
   }
 }

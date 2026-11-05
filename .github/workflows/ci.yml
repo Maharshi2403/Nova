@@ -82,6 +82,9 @@ jobs:
         working-directory: intelligence
         run: uv run --locked --offline pytest
 
+      - name: Documentation verifier tests
+        run: uv run --locked --offline --project intelligence python -m unittest discover -s tests -p test_documentation_verifier.py
+
       - name: Release script quality
         run: |
           uv run --locked --offline --project intelligence ruff format --check --config intelligence/pyproject.toml scripts
