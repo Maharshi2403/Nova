@@ -34,7 +34,7 @@ pub async fn tick(store: &Store, run_id: &RunId, now: i64) -> Result<Vec<TaskId>
             .find(|task| task.id() == id)
             .expect("ready task belongs to the task snapshot");
         if task.state == TaskState::Pending {
-            store
+            let result = store
                 .transition_task(
                     run_id,
                     id,
@@ -42,7 +42,12 @@ pub async fn tick(store: &Store, run_id: &RunId, now: i64) -> Result<Vec<TaskId>
                     TaskState::Ready,
                     Some(&format!("scheduler:ready:{run_id}:{id}")),
                 )
-                .await?;
+                .await;
+            if let Err(error) = result
+                && !matches!(error, StoreError::RevisionConflict { .. })
+            {
+                return Err(error);
+            }
         }
     }
     Ok(ready)

@@ -296,6 +296,35 @@ async fn running_fixture() -> (TempDir, Store, TempDir, RunId) {
 }
 
 #[tokio::test]
+async fn repeated_control_cycles_and_concurrent_ticks_remain_valid() {
+    let (_data, store, _repo, run) = running_fixture().await;
+    let app = api_router(TOKEN.into(), store.clone());
+    for _ in 0..3 {
+        for action in ["pause", "resume"] {
+            let response = app
+                .clone()
+                .oneshot(
+                    auth(Request::post(format!("/v1/runs/{run}/{action}")))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+    }
+    let (a, b) = tokio::join!(
+        harness_runtime::scheduler::tick(&store, &run, 0),
+        harness_runtime::scheduler::tick(&store, &run, 0)
+    );
+    assert!(a.is_ok() && b.is_ok());
+    assert_eq!(
+        store.list_tasks(&run).await.unwrap()[0].state,
+        harness_core::domain::TaskState::Ready
+    );
+}
+
+#[tokio::test]
 async fn pause_prevents_new_dispatch() {
     let (_data, store, _repository, run_id) = running_fixture().await;
     let app = api_router(TOKEN.into(), store.clone());

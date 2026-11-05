@@ -81,6 +81,9 @@ impl WorkerPool {
                 break;
             }
             let task = tasks.iter().find(|t| t.id() == &id).expect("ranked task");
+            if task.state != TaskState::Ready {
+                continue;
+            }
             let Some(guard) = self
                 .locks
                 .try_acquire(&project, &task.spec.candidate_paths, false)

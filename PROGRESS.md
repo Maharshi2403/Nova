@@ -231,5 +231,13 @@ restart demo and cancellation demo all PASS. Workflow parsed with Ruby YAML.
 Windows/macOS hosted CI has NOT been run from this environment; H-058's full gate
 and G4..G7 cross-platform sign-off remain pending. H-059/H-060 documentation and
 packaging are prepared locally without claiming a release or skipping that gate.
+
+## H-058a workflow-review regressions
+
+Repeated pause/resume audit keys now include the expected run revision. Concurrent
+scheduler CAS losers no longer abort unrelated running jobs, dispatch skips tasks
+already moved by another scheduler, and each run owns a distinct worktree registry.
+Daemon API tests PASS (12, including three control cycles/concurrent ticks), runtime
+engine/pool PASS, workspace Clippy/format/diff PASS. Next: H-059 operator docs.
 The original three untracked handoff documents are intentionally excluded from
 the feature commit and left unchanged.

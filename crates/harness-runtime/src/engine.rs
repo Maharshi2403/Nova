@@ -175,7 +175,8 @@ impl Engine {
         options: ExecutionOptions,
     ) -> Result<(), String> {
         let manager = Arc::new(
-            WorktreeManager::new(&repo, &self.root.join("tasks")).map_err(|e| e.to_string())?,
+            WorktreeManager::new(&repo, &self.root.join("tasks").join(run.as_str()))
+                .map_err(|e| e.to_string())?,
         );
         let integrator = Arc::new(
             Integrator::new(

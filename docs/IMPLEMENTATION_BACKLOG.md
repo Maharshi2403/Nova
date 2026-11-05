@@ -33,3 +33,10 @@ Complete these bounded backfill tickets after H-057, before H-058 release checks
 
 H-058's full validation includes both backfill tickets. This is recorded before
 implementation so an adapter-only build is not presented as a complete live harness.
+
+## H-058a release-review fixes
+
+Before documenting operator workflows, fix repeated pause/resume audit keys,
+concurrent scheduler compare-and-set races, and per-run worktree-registry ownership.
+These were found during H-059 workflow review; verify repeat control cycles and
+keep each run's registry separate. No new product scope or remote release.

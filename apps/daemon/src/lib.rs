@@ -656,7 +656,7 @@ async fn transition_run_internal(
             &run.id,
             run.revision,
             target,
-            Some(&format!("api:run:{target:?}:{}", run.id)),
+            Some(&format!("api:run:{target:?}:{}:{}", run.id, run.revision)),
         )
         .await
         .map_err(|error| {
