@@ -237,7 +237,7 @@ fn denied(message: &str) -> ToolResponse {
         error: Some(message.into()),
     }
 }
-async fn invoke(
+pub(crate) async fn invoke(
     spec: WorkerSpec,
     request: &ToolRequest,
     run: &str,

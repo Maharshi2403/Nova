@@ -349,3 +349,17 @@ transient errors, schema constraints, pagination, unsafe URLs, redirects and siz
 Next: H-063 saved profiles/native credential setup and model management.
 The original three untracked handoff documents are intentionally excluded from
 the feature commit and left unchanged.
+
+## H-063 — saved provider setup and catalog
+
+Added atomic locked public provider profiles, macOS Keychain/Windows credential
+vault references, hidden terminal key entry and environment references for headless
+or unsupported native vault platforms. Added provider add/list/remove and model
+list/sync/configure commands, credential-scoped discovery and conservative known
+metadata. Unknown model prices/capabilities remain unavailable. No real API calls
+or user credentials were used. Native vault interaction needs operator setup;
+Windows native execution is not tested on this Mac.
+
+Validation: provider settings tests 2 passed; CLI tests 6 passed (loopback lifecycle
+requires sandbox escalation); workspace Clippy with warnings denied passed.
+Next H-064 wires saved profiles into live execution and use-case routes.

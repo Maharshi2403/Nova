@@ -21,6 +21,10 @@ serde_json = "1"
 thiserror = "2"
 harness-daemon = { path = "../daemon" }
 tokio = { version = "1", features = ["rt-multi-thread", "signal"] }
+harness-runtime = { path = "../../crates/harness-runtime" }
+rpassword = "=7.5.4"
+harness-core = { path = "../../crates/harness-core" }
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 tempfile = "3"

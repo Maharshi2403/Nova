@@ -3,6 +3,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
+mod providers;
 mod startup;
 
 /// Nova — your local coding-agent harness. Run `nova` to get started.
@@ -21,6 +22,14 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
+    Providers {
+        #[command(subcommand)]
+        command: providers::ProviderCommand,
+    },
+    Models {
+        #[command(subcommand)]
+        command: providers::ModelCommand,
+    },
     /// Start Nova in the background, or connect to the running service.
     Start,
     /// Stop Nova safely when no runs are active.
@@ -169,9 +178,22 @@ fn execute(cli: Cli) -> Result<String, CliError> {
     if matches!(command, Command::Stop) {
         return startup::stop(&data_dir, cli.json);
     }
+    let command = match command {
+        Command::Providers { command } => {
+            return providers::providers(&data_dir, command).map_err(CliError::Startup);
+        }
+        Command::Models { command } => {
+            return providers::models(&data_dir, command).map_err(CliError::Startup);
+        }
+        other => other,
+    };
     let client = Client::from_data_dir(&data_dir)?;
     let response = match command {
-        Command::Start | Command::Stop | Command::Serve => {
+        Command::Providers { .. }
+        | Command::Models { .. }
+        | Command::Start
+        | Command::Stop
+        | Command::Serve => {
             unreachable!("lifecycle handled before API commands")
         }
         Command::Approvals { run_id } => {

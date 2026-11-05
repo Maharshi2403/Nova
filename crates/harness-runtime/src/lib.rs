@@ -12,11 +12,15 @@ pub mod live;
 pub mod locks;
 pub mod pool;
 pub mod priority;
+pub mod provider_config;
 pub mod readiness;
 pub mod recovery;
 pub mod sandbox;
 pub mod scheduler;
 pub mod supervisor;
+pub mod vault;
 pub mod verifier;
 pub mod worker;
 pub mod worktree;
+
+pub mod catalog;
