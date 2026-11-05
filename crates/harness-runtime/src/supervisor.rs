@@ -42,6 +42,8 @@ pub enum SuperviseError {
     DeadlineExceeded(Duration),
     #[error("worker sent more than {0} messages")]
     MessageFlood(u32),
+    #[error("assignment budget exceeded: {0}")]
+    BudgetExceeded(&'static str),
     #[error("assignment cancelled")]
     Cancelled,
     #[error("worker closed its stdout before finishing")]
@@ -111,6 +113,16 @@ async fn drive<B: ToolBroker>(
     broker: &mut B,
     cancel: &mut watch::Receiver<bool>,
 ) -> Result<Outcome, SuperviseError> {
+    if start.max_output_tokens == 0
+        || start.max_tool_calls == 0
+        || !start.cost_cap_usd.is_finite()
+        || start.cost_cap_usd < 0.0
+    {
+        return Err(SuperviseError::BudgetExceeded("invalid assignment limits"));
+    }
+    let mut tool_calls = 0u32;
+    let mut output_tokens = 0u64;
+    let mut cost = 0.0f64;
     let assignment = session.start_task(start, now());
     worker
         .send(&assignment)
@@ -143,11 +155,27 @@ async fn drive<B: ToolBroker>(
             return Err(SuperviseError::MessageFlood(limits.max_messages));
         }
         match session.accept(&envelope)? {
-            WorkerMessage::Progress(_) | WorkerMessage::Usage(_) | WorkerMessage::Heartbeat => {}
+            WorkerMessage::Progress(_) | WorkerMessage::Heartbeat => {}
+            WorkerMessage::Usage(usage) => {
+                output_tokens = output_tokens.saturating_add(usage.output_tokens.unwrap_or(0));
+                if let Some(amount) = usage.cost_usd {
+                    if !amount.is_finite() || amount < 0.0 {
+                        return Err(SuperviseError::BudgetExceeded("invalid reported cost"));
+                    }
+                    cost += amount;
+                }
+                if output_tokens > u64::from(start.max_output_tokens) || cost > start.cost_cap_usd {
+                    return Err(SuperviseError::BudgetExceeded("reported usage"));
+                }
+            }
             WorkerMessage::ToolRequest {
                 request_id,
                 request,
             } => {
+                if tool_calls >= start.max_tool_calls {
+                    return Err(SuperviseError::BudgetExceeded("tool calls"));
+                }
+                tool_calls += 1;
                 let response = broker.handle(&request).await;
                 let reply = session.tool_response(request_id, &response, now())?;
                 worker.send(&reply).await.map_err(SuperviseError::Worker)?;

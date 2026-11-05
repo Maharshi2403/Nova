@@ -1,6 +1,7 @@
 //! Scheduler runtime. Pure decision logic lives here; I/O is added in later tickets.
 
 pub mod broker;
+pub mod budget;
 pub mod committer;
 pub mod diff_gate;
 pub mod git;

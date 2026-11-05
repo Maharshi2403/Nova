@@ -7,6 +7,7 @@ use sqlx::SqlitePool;
 use sqlx::migrate::Migrator;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 
+pub mod budgets;
 pub mod git_artifacts;
 pub mod leases;
 pub mod plans;
@@ -17,6 +18,8 @@ static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
+    #[error("budget denied: {0}")]
+    BudgetDenied(&'static str),
     #[error("database error: {0}")]
     Db(#[from] sqlx::Error),
     #[error("migration error: {0}")]

@@ -181,3 +181,70 @@ async fn real_mock_worker_still_completes_under_supervision() {
     assert!(matches!(r, Ok(Outcome::Completed(_))), "{r:?}");
     assert_eq!(w.shutdown(T).await.code, Some(0));
 }
+
+#[tokio::test]
+async fn output_token_budget_stops_worker() {
+    let (_tx, rx) = watch::channel(false);
+    let body = "write_frame(out, frame('usage', {'provider': 'mock', 'model_id': 'm', 'input_tokens': None, 'output_tokens': 101, 'cost_usd': None, 'price_source': 'unknown'}))\ntime.sleep(60)";
+    let (r, w) = run(body, limits(), rx).await;
+    assert!(
+        matches!(r, Err(SuperviseError::BudgetExceeded("reported usage"))),
+        "{r:?}"
+    );
+    assert!(w.shutdown(T).await.killed_by_supervisor);
+}
+
+#[tokio::test]
+async fn reported_cost_budget_stops_worker() {
+    let (_tx, rx) = watch::channel(false);
+    let body = "write_frame(out, frame('usage', {'provider': 'mock', 'model_id': 'm', 'input_tokens': None, 'output_tokens': None, 'cost_usd': 0.01, 'price_source': 'provider_billed'}))\ntime.sleep(60)";
+    let (r, w) = run(body, limits(), rx).await;
+    assert!(
+        matches!(r, Err(SuperviseError::BudgetExceeded("reported usage"))),
+        "{r:?}"
+    );
+    assert!(w.shutdown(T).await.killed_by_supervisor);
+}
+
+#[tokio::test]
+async fn tool_budget_checked_before_broker_invocation() {
+    struct CountingBroker(u32);
+    impl ToolBroker for CountingBroker {
+        async fn handle(&mut self, _: &ToolRequest) -> ToolResponse {
+            self.0 += 1;
+            ToolResponse {
+                ok: true,
+                result: Some(json!({})),
+                error: None,
+            }
+        }
+    }
+    let body = "for _ in range(2):\n    write_frame(out, frame('tool_request', {'tool': 'read_file', 'arguments': {}}))\n    read_frame(sys.stdin.buffer)";
+    let mut w = Worker::spawn(&scripted(body)).unwrap();
+    w.handshake(T).await.unwrap();
+    // The assignment cap must apply even when the session has a higher cap.
+    let mut session = AssignmentSession::new("run-1", "task-1", 1, 10);
+    let mut assignment = start();
+    assignment.max_tool_calls = 1;
+    let mut broker = CountingBroker(0);
+    let (_tx, rx) = watch::channel(false);
+    let result = supervise(&mut w, &mut session, &assignment, limits(), &mut broker, rx).await;
+    assert!(
+        matches!(result, Err(SuperviseError::BudgetExceeded("tool calls"))),
+        "{result:?}"
+    );
+    assert_eq!(broker.0, 1);
+    assert!(w.shutdown(T).await.killed_by_supervisor);
+}
+
+#[tokio::test]
+async fn output_budget_accumulates_across_usage_messages() {
+    let (_tx, rx) = watch::channel(false);
+    let body = "for _ in range(2):\n    write_frame(out, frame('usage', {'provider': 'mock', 'model_id': 'm', 'input_tokens': None, 'output_tokens': 60, 'cost_usd': None, 'price_source': 'unknown'}))\ntime.sleep(60)";
+    let (r, w) = run(body, limits(), rx).await;
+    assert!(
+        matches!(r, Err(SuperviseError::BudgetExceeded("reported usage"))),
+        "{r:?}"
+    );
+    assert!(w.shutdown(T).await.killed_by_supervisor);
+}
