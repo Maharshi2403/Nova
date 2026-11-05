@@ -2,3 +2,4 @@
 
 pub mod paths;
 pub mod read;
+pub mod write;

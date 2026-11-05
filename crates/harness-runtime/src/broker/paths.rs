@@ -49,6 +49,7 @@ pub fn is_denied_relative(rel: &Path) -> bool {
             let name = name.to_string_lossy();
             name.eq_ignore_ascii_case(".git") || is_sensitive_name(&name)
         }
+        Component::CurDir => false,
         _ => true,
     })
 }
@@ -105,5 +106,42 @@ impl PathPolicy {
             return Err(PathError::Denied("path is protected".into()));
         }
         Ok(full)
+    }
+
+    /// Resolve a path that may not exist yet for writing. The deepest existing ancestor
+    /// and any existing target are canonicalised (so symlinks are followed) and must stay
+    /// inside the worktree; an existing symlink target is refused outright.
+    pub fn resolve_for_write(&self, input: &str) -> Result<PathBuf, PathError> {
+        let rel = self.check_relative(input)?;
+        let full = self.root.join(&rel);
+        if let Ok(meta) = std::fs::symlink_metadata(&full) {
+            if meta.file_type().is_symlink() {
+                return Err(PathError::Denied(
+                    "refusing to write through a symlink".into(),
+                ));
+            }
+            if !meta.is_file() {
+                return Err(PathError::Denied("target is not a regular file".into()));
+            }
+        }
+        let mut ancestor = full.parent();
+        while let Some(a) = ancestor {
+            if a.exists() {
+                let real = std::fs::canonicalize(a)
+                    .map(simplify)
+                    .map_err(|_| PathError::Denied("cannot resolve parent directory".into()))?;
+                let inside = real
+                    .strip_prefix(&self.root)
+                    .map_err(|_| PathError::Denied("path resolves outside the worktree".into()))?;
+                if is_denied_relative(inside) {
+                    return Err(PathError::Denied("path is protected".into()));
+                }
+                return Ok(full);
+            }
+            ancestor = a.parent();
+        }
+        Err(PathError::Denied(
+            "no existing parent inside the worktree".into(),
+        ))
     }
 }
