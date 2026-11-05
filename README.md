@@ -64,3 +64,5 @@ CI also runs full tests and load/crash/cancel demos on Windows/macOS/Linux.
 schemas and cross-language fixtures live in `schemas` and `tests/fixtures`.
 
 No push, deployment, release publication or tag is automatic.
+For native candidate packaging and installation smoke tests, see
+[release checklist](docs/RELEASE_CHECKLIST.md).

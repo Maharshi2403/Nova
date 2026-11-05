@@ -50,6 +50,9 @@ jobs:
         working-directory: intelligence
         run: uv sync --locked
 
+      - name: Prepare hash-verified installation cache (dependency downloads only)
+        run: uv run --locked --offline --project intelligence python scripts/prepare_release_cache.py
+
       - name: Rust tests
         run: cargo test --locked --offline --workspace
 
@@ -78,6 +81,27 @@ jobs:
       - name: Python tests
         working-directory: intelligence
         run: uv run --locked --offline pytest
+
+      - name: Release script quality
+        run: |
+          uv run --locked --offline --project intelligence ruff format --check --config intelligence/pyproject.toml scripts
+          uv run --locked --offline --project intelligence ruff check --select E,F,I,B,W --config intelligence/pyproject.toml scripts
+
+      - name: Native release build
+        run: cargo build --release --locked --offline --workspace
+
+      - name: Package native candidate
+        run: uv run --locked --offline --project intelligence python scripts/package_release.py
+
+      - name: Fresh extracted-bundle installation
+        run: uv run --locked --offline --project intelligence python scripts/smoke_bundle.py --archive-dir dist
+
+      - name: Upload local release candidates
+        uses: actions/upload-artifact@v4
+        with:
+          name: nova-candidate-${{ runner.os }}-${{ runner.arch }}
+          path: dist/nova-*
+          if-no-files-found: error
 
       - name: Upload inspected local binaries
         uses: actions/upload-artifact@v4

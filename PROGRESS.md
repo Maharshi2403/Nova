@@ -1,6 +1,6 @@
 # Implementation progress
 
-Latest locally verified implementation: H-059 — operator documentation.
+Latest locally verified implementation: H-060 — native candidate packaging.
 Prior implementation: H-001..H-044 appear in Git history; their original platform
 evidence has not been independently audited. Current stage: G5.
 
@@ -255,5 +255,50 @@ intelligence python scripts/offline_demo.py --tasks 3`. CLI/daemon help checked;
 local documentation links/example JSON validated; format/diff checks PASS.
 Hosted Windows/macOS and paid live smoke remain unverified. Next: H-060 local
 packaging and extracted-bundle installation smoke, without release publication.
+
+## H-060 verification — 2026-11-05, macOS arm64
+
+Added stripped/thin-LTO native release builds, pinned Python build requirements,
+hash-pinned runtime dependency export, deterministic ZIP packaging with per-file
+and archive SHA-256 checksums, build/source metadata, bounded safe extraction,
+fresh-wheel installation smoke, and a manual release checklist. CI packages and
+smoke-tests each native platform. Generated bundles are ignored under dist/.
+
+Actual final checks:
+
+- `cargo test --locked --offline --workspace`: PASS, 207 tests across 56 test/doc binaries.
+- `cargo build --release --locked --offline --workspace`: PASS.
+- `cargo clippy --locked --offline --workspace --all-targets -- -D warnings`: PASS.
+- `cargo fmt --all --check`: PASS.
+- Python `uv run --offline --locked pytest -q`: PASS, 84 tests; Ruff check/format
+  PASS (30 files), strict mypy PASS (29 files).
+- Release/demo scripts Ruff formatting and E/F/I/B/W lint: PASS.
+- `scripts/offline_demo.py --tasks 100 --bin-dir target/release`: PASS, unique
+  commits/integration SHAs, verifier evidence and a clean original checkout.
+- `scripts/package_release.py` and `scripts/smoke_bundle.py --archive-dir dist`:
+  PASS, actual native binaries, fresh temporary venv, hash-verified dependencies,
+  non-editable wheel installation, and real extracted-bundle CLI workflow.
+- Repeated packaging of identical inputs: byte-identical SHA-256; content inspected
+  for unexpected token/database/Git paths. Workflow YAML and documentation links PASS.
+
+The first fresh-install smoke correctly failed because package metadata was missing
+from the cache. A separate optional preparation script installs hash-verified
+dependencies in a disposable venv/cache; the installation smoke remains offline.
+No assertions/hashes were weakened. No live provider calls, push, tag or publication.
+Bundles are rebuilt after this commit to record the final source revision and clean
+tracked status. Archive determinism does not claim cross-host binary reproducibility.
+
+## Remaining release evidence
+
+The local implementation backlog is built and committed through H-060, including
+the documented live-worker and execution backfills. Full H-058/G4..G7 sign-off still
+requires hosted Windows/macOS evidence and a separately authorized budgeted live
+smoke. Signing/notarization and release publication are not performed. No shipped
+hard sandbox exists; untrusted execution is denied. CLI plans use reviewed JSON;
+the foundational YAML resolver is not automatically loaded by the daemon. See the
+operator/configuration docs for these explicit product limits.
+
+The three original handoff documents remain unchanged and untracked. Only
+ticket-owned implementation, tests, documentation and packaging files were committed.
 The original three untracked handoff documents are intentionally excluded from
 the feature commit and left unchanged.

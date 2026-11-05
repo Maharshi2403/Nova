@@ -10,3 +10,8 @@ publish = false
 
 [workspace.dependencies]
 clap = { version = "4", features = ["derive"] }
+
+[profile.release]
+strip = "symbols"
+lto = "thin"
+codegen-units = 1
