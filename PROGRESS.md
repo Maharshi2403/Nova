@@ -1,6 +1,6 @@
 # Implementation progress
 
-Latest completed ticket: H-057 — explicit execution trust boundary.
+Latest completed ticket: H-043b — bounded structured coder loop backfill.
 Prior implementation: H-001..H-044 appear in Git history; their original platform
 evidence has not been independently audited. Current stage: G5.
 
@@ -183,5 +183,20 @@ Clippy/format/diff PASS. Windows execution is still unverified locally.
 
 Before H-058, finish the newly documented H-043b/c backfill for live worker wiring;
 the original adapter alone did not implement live coding through the daemon.
+
+## H-043b verification
+
+Added a structured coder loop over the existing opt-in Responses adapter. Every
+attempt (including transient retries) asks the Rust broker for spend authorization;
+all tools use JSONL. Prompts retain acceptance and a bounded recent handoff, usage
+is emitted per call and unknown output usage stops further calls. Heartbeats run
+while awaiting the provider. Tool, output, turn and wall-time limits fail closed.
+Provider errors never echo inputs or credentials. Structured-output contract checked
+against https://developers.openai.com/api/docs/guides/structured-outputs using the
+OpenAI Docs skill. No model IDs/prices are hardcoded.
+
+`cd intelligence && uv run --offline --locked pytest -q`: PASS (84), Ruff check
+and format PASS (29 files), mypy PASS (28 files). All provider tests are fake/offline.
+Next: H-043c Rust live routing/reservations and explicit CLI opt-in.
 The original three untracked handoff documents are intentionally excluded from
 the feature commit and left unchanged.

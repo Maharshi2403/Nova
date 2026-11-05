@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
 from datetime import UTC, datetime
 from typing import Any, BinaryIO, Literal
 from uuid import UUID, uuid4
@@ -103,6 +105,43 @@ def run_mock_assignment(start: Envelope, stdin: BinaryIO, stdout: BinaryIO) -> N
                 Failed(reason=f"bad start_task: {exc}", retryable=False).model_dump(),
             ),
         )
+        return
+    if assignment.model.provider == "openai" and assignment.role == "coder":
+        from harness_ai.coder import code_task
+        from harness_ai.providers.base import ProviderError
+        from harness_ai.providers.openai import OpenAIProvider
+
+        try:
+            provider = OpenAIProvider(
+                enabled=os.environ.get("HARNESS_ENABLE_LIVE") == "1",
+                api_key=os.environ.get("OPENAI_API_KEY", ""),
+            )
+
+            def tool(name: str, arguments: dict[str, Any]) -> ToolResponse:
+                request = _envelope(start, "tool_request", {"tool": name, "arguments": arguments})
+                write_frame(stdout, request)
+                reply = read_frame(stdin)
+                if (
+                    reply is None
+                    or reply.kind != "tool_response"
+                    or reply.correlation_id != str(request.message_id)
+                ):
+                    raise AssignmentError("missing or mismatched tool response")
+                return ToolResponse.model_validate(reply.payload)
+
+            def emit(kind: str, payload: dict[str, Any]) -> None:
+                write_frame(stdout, _envelope(start, kind, payload))  # type: ignore[arg-type]
+
+            asyncio.run(code_task(assignment, provider, tool, emit))
+        except ProviderError:
+            write_frame(
+                stdout,
+                _envelope(
+                    start,
+                    "failed",
+                    {"reason": "live provider disabled or unavailable", "retryable": False},
+                ),
+            )
         return
     if assignment.model.provider != "mock":
         failed = Failed(reason="only the mock provider is available", retryable=False)
