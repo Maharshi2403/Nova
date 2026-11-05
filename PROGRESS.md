@@ -1,6 +1,6 @@
 # Implementation progress
 
-Latest completed ticket: H-045 — compact context and optimize prompt reuse.
+Latest completed ticket: H-046 — bounded retries and policy-controlled fallback.
 Prior implementation: H-001..H-044 appear in Git history; their original platform
 evidence has not been independently audited. Current stage: G5.
 
@@ -29,6 +29,20 @@ this module grants no tools and performs no filesystem reads or persistence.
 Planning uses the builder. Coder prompts are available to a future live worker loop;
 the existing worker remains mock-only. Byte sizes are not observed token counts.
 
-Next unblocked ticket: H-046 — bounded retries and policy-controlled fallback.
+## H-046 verification
+
+`RetryingProvider` retries only typed transient failures, up to ten configured
+attempts (default three), with capped exponential full jitter and one overall
+deadline. Cancellation and permanent errors propagate immediately. Every attempt,
+including an explicitly configured fallback, requires an async authorization
+callback supplied by the Rust-facing caller; no default approval is provided.
+This is an opt-in adapter; live execution remains disabled by default.
+
+Commands: `cd intelligence && uv run --offline --locked pytest -q` PASS (82 tests),
+`uv run --offline --locked ruff check .` PASS, `uv run --offline --locked mypy`
+PASS (26 files); changed files formatted with Ruff; `git diff --check` PASS.
+No live calls. Cross-platform CI has not been executed remotely.
+
+Next unblocked ticket: H-047 — resource locks for parallel assignments.
 The original three untracked handoff documents are intentionally excluded from
 the feature commit and left unchanged.
