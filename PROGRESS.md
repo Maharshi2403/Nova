@@ -1,6 +1,6 @@
 # Implementation progress
 
-Latest completed ticket: H-047 — project resource locks.
+Latest completed ticket: H-048 — bounded worker pool.
 Prior implementation: H-001..H-044 appear in Git history; their original platform
 evidence has not been independently audited. Current stage: G5.
 
@@ -52,6 +52,16 @@ closed. Durable leases and broker canonical-path authorization are still require
 `cargo clippy --offline -p harness-runtime --all-targets -- -D warnings`: PASS.
 `cargo fmt --all` and `git diff --check`: PASS.
 
-Next unblocked ticket: H-048 — bounded worker pool.
+## H-048 verification
+
+Added bounded dispatch using the minimum configured/provider/infrastructure
+capacity. Priority/readiness, resource locks and durable spend reservations precede
+the execution callback. Failures block tasks, release leases and settle usage;
+completion still requires the existing verifier/integrator. No process spawns for
+blocked dependencies or denied budgets. `cargo test --offline -p harness-runtime
+--test pool`: PASS; `cargo clippy --offline -p harness-runtime --all-targets --
+-D warnings`: PASS; format and diff checks PASS.
+
+Next unblocked ticket: H-049 — shared serialized integration.
 The original three untracked handoff documents are intentionally excluded from
 the feature commit and left unchanged.
