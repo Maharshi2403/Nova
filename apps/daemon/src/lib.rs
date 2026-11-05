@@ -9,9 +9,10 @@ use axum::http::{Request, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use harness_core::domain::{Project, ProjectId, RunId};
+use harness_core::domain::{Project, ProjectId, Run, RunId, RunState, Task};
 use harness_core::plan::PlanProposal;
 use harness_runtime::git::register_repo;
+use harness_runtime::scheduler::tick;
 use harness_store::Store;
 use harness_store::plans::{PlanRecord, PlanRepository, PlanStatus};
 use harness_store::repository::Repository;
@@ -112,6 +113,12 @@ pub fn api_router(token: String, store: Store) -> Router {
             .route("/plans", post(propose_plan))
             .route("/plans/{run_id}/{version}", get(get_plan))
             .route("/plans/{run_id}/{version}/approve", post(approve_plan))
+            .route("/runs", post(create_run))
+            .route("/runs/{run_id}", get(get_run))
+            .route("/runs/{run_id}/pause", post(pause_run))
+            .route("/runs/{run_id}/resume", post(resume_run))
+            .route("/runs/{run_id}/cancel", post(cancel_run))
+            .route("/runs/{run_id}/tasks", get(list_tasks))
             .with_state(ApiState { store })
             .layer(axum::middleware::from_fn_with_state(token, require_bearer)),
     )
@@ -156,6 +163,29 @@ struct ProjectResponse {
 struct ProposePlanRequest {
     run_id: String,
     plan: PlanProposal,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CreateRunRequest {
+    project_id: String,
+}
+
+#[derive(Serialize)]
+struct RunResponse {
+    id: String,
+    project_id: String,
+    state: RunState,
+    revision: u64,
+}
+
+#[derive(Serialize)]
+struct TaskResponse {
+    id: String,
+    state: harness_core::domain::TaskState,
+    revision: u64,
+    attempt: u32,
+    spec: harness_core::domain::TaskSpec,
 }
 
 #[derive(Serialize)]
@@ -320,6 +350,166 @@ fn plan_response(record: PlanRecord) -> PlanResponse {
     }
 }
 
+async fn create_run(
+    State(state): State<ApiState>,
+    Json(request): Json<CreateRunRequest>,
+) -> ApiResult<RunResponse> {
+    let project_id = ProjectId::new(request.project_id).map_err(|error| {
+        api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_project_id",
+            error.to_string(),
+        )
+    })?;
+    state
+        .store
+        .get_project(&project_id)
+        .await
+        .map_err(|error| {
+            api_error(
+                StatusCode::NOT_FOUND,
+                "project_not_found",
+                error.to_string(),
+            )
+        })?;
+    let run = Run::new(
+        RunId::new(Uuid::new_v4().to_string()).expect("UUID is a valid run id"),
+        project_id,
+    );
+    state
+        .store
+        .create_run(&run)
+        .await
+        .map_err(|error| api_error(StatusCode::CONFLICT, "run_conflict", error.to_string()))?;
+    Ok((StatusCode::CREATED, Json(run_response(run))))
+}
+
+async fn get_run(
+    State(state): State<ApiState>,
+    RoutePath(run_id): RoutePath<String>,
+) -> ApiResult<RunResponse> {
+    let run = load_run(&state.store, run_id).await?;
+    Ok((StatusCode::OK, Json(run_response(run))))
+}
+
+async fn pause_run(
+    State(state): State<ApiState>,
+    RoutePath(run_id): RoutePath<String>,
+) -> ApiResult<RunResponse> {
+    transition_run(&state.store, run_id, RunState::Paused).await
+}
+
+async fn resume_run(
+    State(state): State<ApiState>,
+    RoutePath(run_id): RoutePath<String>,
+) -> ApiResult<RunResponse> {
+    let run = transition_run_internal(&state.store, run_id, RunState::Running).await?;
+    tick(&state.store, &run.id, unix_seconds())
+        .await
+        .map_err(|error| {
+            api_error(
+                StatusCode::CONFLICT,
+                "scheduler_tick_failed",
+                error.to_string(),
+            )
+        })?;
+    let run =
+        state.store.get_run(&run.id).await.map_err(|error| {
+            api_error(StatusCode::NOT_FOUND, "run_not_found", error.to_string())
+        })?;
+    Ok((StatusCode::OK, Json(run_response(run))))
+}
+
+async fn cancel_run(
+    State(state): State<ApiState>,
+    RoutePath(run_id): RoutePath<String>,
+) -> ApiResult<RunResponse> {
+    transition_run(&state.store, run_id, RunState::Cancelled).await
+}
+
+async fn list_tasks(
+    State(state): State<ApiState>,
+    RoutePath(run_id): RoutePath<String>,
+) -> ApiResult<Vec<TaskResponse>> {
+    let run = load_run(&state.store, run_id).await?;
+    let tasks =
+        state.store.list_tasks(&run.id).await.map_err(|error| {
+            api_error(StatusCode::NOT_FOUND, "run_not_found", error.to_string())
+        })?;
+    Ok((
+        StatusCode::OK,
+        Json(tasks.into_iter().map(task_response).collect()),
+    ))
+}
+
+async fn transition_run(store: &Store, run_id: String, target: RunState) -> ApiResult<RunResponse> {
+    let run = transition_run_internal(store, run_id, target).await?;
+    Ok((StatusCode::OK, Json(run_response(run))))
+}
+
+async fn transition_run_internal(
+    store: &Store,
+    run_id: String,
+    target: RunState,
+) -> Result<Run, (StatusCode, Json<ErrorResponse>)> {
+    let run = load_run(store, run_id).await?;
+    store
+        .transition_run(
+            &run.id,
+            run.revision,
+            target,
+            Some(&format!("api:run:{target:?}:{}", run.id)),
+        )
+        .await
+        .map_err(|error| {
+            api_error(
+                StatusCode::CONFLICT,
+                "run_not_transitionable",
+                error.to_string(),
+            )
+        })
+}
+
+async fn load_run(store: &Store, run_id: String) -> Result<Run, (StatusCode, Json<ErrorResponse>)> {
+    let run_id = RunId::new(run_id).map_err(|error| {
+        api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_run_id",
+            error.to_string(),
+        )
+    })?;
+    store
+        .get_run(&run_id)
+        .await
+        .map_err(|error| api_error(StatusCode::NOT_FOUND, "run_not_found", error.to_string()))
+}
+
+fn run_response(run: Run) -> RunResponse {
+    RunResponse {
+        id: run.id.to_string(),
+        project_id: run.project_id.to_string(),
+        state: run.state,
+        revision: run.revision,
+    }
+}
+
+fn task_response(task: Task) -> TaskResponse {
+    TaskResponse {
+        id: task.id().to_string(),
+        state: task.state,
+        revision: task.revision,
+        attempt: task.attempt,
+        spec: task.spec,
+    }
+}
+
+fn unix_seconds() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| {
+            i64::try_from(duration.as_secs()).unwrap_or(i64::MAX)
+        })
+}
 fn load_or_create_token(path: &Path) -> Result<String, DaemonError> {
     match std::fs::read_to_string(path) {
         Ok(token) if !token.trim().is_empty() => Ok(token.trim().to_owned()),

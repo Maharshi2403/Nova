@@ -1,9 +1,11 @@
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode, header};
 use harness_core::domain::{Project, ProjectId, Run, RunId};
+use harness_core::plan::PlanProposal;
 use harness_daemon::api_router;
 use harness_runtime::git::git;
 use harness_store::Store;
+use harness_store::plans::PlanRepository;
 use harness_store::repository::Repository;
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -184,4 +186,118 @@ async fn plan_approval_required() {
         store.get_run(&run_id).await.unwrap().state,
         harness_core::domain::RunState::AwaitingApproval
     );
+}
+
+async fn running_fixture() -> (TempDir, Store, TempDir, RunId) {
+    let (data, store, repository) = fixture().await;
+    let project_id = ProjectId::new("project-1").unwrap();
+    let run_id = RunId::new("run-1").unwrap();
+    store
+        .create_project(
+            &Project::new(
+                project_id.clone(),
+                "Demo",
+                repository.path().display().to_string(),
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    store
+        .create_run(&Run::new(run_id.clone(), project_id))
+        .await
+        .unwrap();
+    store
+        .propose_plan(
+            &run_id,
+            &serde_json::from_value::<PlanProposal>(valid_plan("project-1")).unwrap(),
+        )
+        .await
+        .unwrap();
+    store.approve_plan(&run_id, 1).await.unwrap();
+    (data, store, repository, run_id)
+}
+
+#[tokio::test]
+async fn pause_prevents_new_dispatch() {
+    let (_data, store, _repository, run_id) = running_fixture().await;
+    let app = api_router(TOKEN.into(), store.clone());
+    let pause = app
+        .clone()
+        .oneshot(
+            auth(Request::post(format!("/v1/runs/{run_id}/pause")))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(pause.status(), StatusCode::OK);
+    let tasks = app
+        .oneshot(
+            auth(Request::get(format!("/v1/runs/{run_id}/tasks")))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body = to_bytes(tasks.into_body(), 16_384).await.unwrap();
+    let tasks: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(tasks[0]["state"], "pending");
+    assert_eq!(
+        store.get_run(&run_id).await.unwrap().state,
+        harness_core::domain::RunState::Paused
+    );
+}
+
+#[tokio::test]
+async fn resume_releases_ready() {
+    let (_data, store, _repository, run_id) = running_fixture().await;
+    let app = api_router(TOKEN.into(), store.clone());
+    app.clone()
+        .oneshot(
+            auth(Request::post(format!("/v1/runs/{run_id}/pause")))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let response = app
+        .oneshot(
+            auth(Request::post(format!("/v1/runs/{run_id}/resume")))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        store
+            .list_tasks(&run_id)
+            .await
+            .unwrap()
+            .first()
+            .unwrap()
+            .state,
+        harness_core::domain::TaskState::Ready
+    );
+}
+
+#[tokio::test]
+async fn status_matches_db() {
+    let (_data, store, _repository, run_id) = running_fixture().await;
+    let response = api_router(TOKEN.into(), store.clone())
+        .oneshot(
+            auth(Request::get(format!("/v1/runs/{run_id}")))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let response: Value = serde_json::from_slice(&body).unwrap();
+    let run = store.get_run(&run_id).await.unwrap();
+    assert_eq!(response["id"], run.id.as_str());
+    assert_eq!(response["state"], "running");
+    assert_eq!(response["revision"], run.revision);
 }

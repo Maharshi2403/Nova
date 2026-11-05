@@ -7,6 +7,7 @@ pub mod git;
 pub mod integration;
 pub mod priority;
 pub mod readiness;
+pub mod scheduler;
 pub mod supervisor;
 pub mod verifier;
 pub mod worker;

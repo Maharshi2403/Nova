@@ -15,6 +15,14 @@ pub trait Repository {
     async fn get_project(&self, id: &ProjectId) -> Result<Project, StoreError>;
     async fn create_run(&self, run: &Run) -> Result<(), StoreError>;
     async fn get_run(&self, id: &RunId) -> Result<Run, StoreError>;
+    /// Validated run-level state change. A paused run cannot have new work dispatched.
+    async fn transition_run(
+        &self,
+        id: &RunId,
+        expected_revision: u64,
+        to: RunState,
+        idempotency_key: Option<&str>,
+    ) -> Result<Run, StoreError>;
     /// Insert a task and its dependency edges atomically. Dependencies must already
     /// exist in the same run.
     async fn insert_task(&self, task: &Task) -> Result<(), StoreError>;
@@ -172,6 +180,65 @@ impl Repository for Store {
             state,
             revision: to_u64(row.try_get("revision")?)?,
         })
+    }
+
+    async fn transition_run(
+        &self,
+        id: &RunId,
+        expected_revision: u64,
+        to: RunState,
+        idempotency_key: Option<&str>,
+    ) -> Result<Run, StoreError> {
+        let current = self.get_run(id).await?;
+        if current.revision != expected_revision {
+            return Err(StoreError::RevisionConflict {
+                expected: expected_revision,
+                actual: current.revision,
+            });
+        }
+        let allowed = matches!(
+            (current.state, to),
+            (RunState::Running, RunState::Paused)
+                | (RunState::Paused, RunState::Running)
+                | (RunState::Planning, RunState::Cancelled)
+                | (RunState::AwaitingApproval, RunState::Cancelled)
+                | (RunState::Running, RunState::Cancelled)
+                | (RunState::Paused, RunState::Cancelled)
+        );
+        if !allowed {
+            return Err(StoreError::PlanNotDecidable("illegal run state transition"));
+        }
+        let mut tx = self.pool().begin().await?;
+        let changed = sqlx::query(
+            "UPDATE runs SET state = ?, revision = revision + 1 \
+             WHERE id = ? AND revision = ?",
+        )
+        .bind(enum_to_text(&to)?)
+        .bind(id.as_str())
+        .bind(to_i64(expected_revision)?)
+        .execute(&mut *tx)
+        .await?;
+        if changed.rows_affected() == 0 {
+            tx.rollback().await?;
+            let actual = self.get_run(id).await?.revision;
+            return Err(StoreError::RevisionConflict {
+                expected: expected_revision,
+                actual,
+            });
+        }
+        sqlx::query(
+            "INSERT INTO events (run_id, kind, from_state, to_state, idempotency_key) \
+             VALUES (?, 'run.transition', ?, ?, ?)",
+        )
+        .bind(id.as_str())
+        .bind(enum_to_text(&current.state)?)
+        .bind(enum_to_text(&to)?)
+        .bind(idempotency_key)
+        .execute(&mut *tx)
+        .await
+        .map_err(StoreError::from_insert)?;
+        tx.commit().await?;
+        self.get_run(id).await
     }
 
     async fn insert_task(&self, task: &Task) -> Result<(), StoreError> {
