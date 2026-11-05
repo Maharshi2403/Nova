@@ -36,6 +36,7 @@ fn task(risk: Risk) -> Task {
     Task {
         run_id: RunId::new("run-1").unwrap(),
         spec: TaskSpec {
+            use_case: Default::default(),
             id: TaskId::new("task-1").unwrap(),
             title: "Gate changes".into(),
             description: "Validate a constrained worktree diff.".into(),

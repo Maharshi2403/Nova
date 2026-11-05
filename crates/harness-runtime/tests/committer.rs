@@ -49,6 +49,7 @@ async fn fixture(command: Vec<String>) -> Fixture {
     let task = Task {
         run_id,
         spec: TaskSpec {
+            use_case: Default::default(),
             id: TaskId::new("task-1").unwrap(),
             title: "Commit verified change".into(),
             description: "Commit only a validated task change.".into(),

@@ -1,0 +1,90 @@
+# Provider setup and model routing
+
+Nova supports OpenAI's Responses API, native Claude Messages, and services speaking
+OpenAI-compatible Chat Completions with JSON Schema structured output. A different
+protocol needs an adapter. A ChatGPT or Claude chat subscription is separate from
+API credentials/billing. Models must support Nova's structured action schema.
+
+```sh
+nova providers add openai
+nova providers add anthropic
+nova providers add openrouter
+nova models list
+nova routes set coding openai/gpt-6.1-sol
+nova routes set review anthropic/claude-sonnet-5-5
+nova routes set architecture openai/gpt-6-astra
+nova routes list
+```
+
+Use the exact discovered model IDs; the examples require account access to those
+models. Adding a provider prompts for a hidden key, discovers account models using
+GET /models (no generation), and saves its connection. On macOS keys live in
+Keychain; Windows uses Credential Manager. The profile JSON contains opaque vault
+references, never keys. Never paste keys into chat or CLI arguments. Native OS
+vault access may display an operating-system unlock/access prompt.
+
+Custom gateways and local servers:
+
+```sh
+nova providers add gateway --kind compatible --base-url https://gateway.example/v1
+nova providers add local --kind compatible --base-url http://127.0.0.1:8000/v1
+```
+
+HTTPS is required except literal loopback/localhost HTTP. Redirects and environment
+HTTP proxies are disabled. Only explicitly configured compatible connections can
+use custom endpoints; native providers use official URLs. Local servers still need
+a nonempty key (use their documented token). Gateways receive your task context.
+
+`--python PATH` saves an installed Nova intelligence interpreter once. Current
+source installations and extracted bundles with a sibling `runtime` venv are found
+automatically. `--skip-discovery` saves a connection without a network request;
+it does not claim any model is available. On Linux or headless setups use
+`--key-env VARIABLE` referencing a secret supplied to the Nova service environment.
+An already-running daemon cannot see variables added later to another shell; restart
+Nova from the environment containing those references. Never save keys in shell
+history. List/remove connections with `nova providers list` and
+`nova providers remove NAME`. Removing a connection clears its models/routes/key.
+
+`nova models sync PROVIDER` refreshes account discovery. Known exact native model
+IDs get bundled official metadata dated 2026-11-05. Compatible rich catalogs such
+as OpenRouter can supply context, output caps, structured-output support and
+per-token prices. Unknown metadata remains unavailable, rather than free. For a
+model whose provider documents its capabilities/prices, supply them explicitly:
+
+```sh
+nova models configure gateway MODEL_ID --context 128000 --max-output 8192 --input-price 2 --output-price 10 --structured-output --tier medium
+```
+
+Prices above are illustrative USD per million tokens. Confirm actual rates first.
+Models with per-request fees need an accounting adapter and cannot be automatically
+marked ready. Sync replaces manual metadata for that provider; reconfigure after
+sync when necessary. Haiku's higher-context token rate is used conservatively.
+These are estimates, not provider billing guarantees; no paid capability probes or
+benchmarks run automatically.
+
+Each task proposal can carry `use_case`: coding (default), planning, review,
+debugging, architecture or fast. A saved route pins that use case to one model
+across complexity/risk tiers. Other tasks use deterministic low/medium/high routes:
+cheapest known model in each declared tier, falling back to the cheapest ready
+model when a tier is absent. Selection does not infer model expertise or promise
+quality; choose models based on your own use cases. `nova routes reset` clears
+pins. Route changes apply to newly launched executions; in-flight runs retain
+their validated configuration. A planning/review task follows the same constrained
+worker and acceptance workflow; it does not automatically create extra paid
+planning/review passes. Include report paths and executable acceptance as needed.
+
+Execute an approved run using `nova execute RUN_ID --live --test-commands FILE`.
+Saved settings default to $5 per run and $10 per UTC day; each approved task still
+has its own cost cap. `providers.json` stores these integer microdollar caps and
+public routing/model metadata. Stop Nova before manual settings edits. Advanced
+`--model-config FILE` can override registry/routing/budgets; it cannot redirect a
+saved provider's key to a new endpoint. Missing keys/capabilities reject execution.
+Credentials are resolved by Rust and sent only to the chosen helper; coder and
+verifier processes never receive them. Every paid attempt/retry remains subject
+to grants, tool limits and persistent spend reservations. No automatic provider
+fallback silently switches billing accounts.
+
+API references: [OpenAI models](https://developers.openai.com/api/docs/models),
+[Claude structured output](https://platform.claude.com/docs/en/build-with-claude/structured-outputs),
+[Claude pricing](https://platform.claude.com/docs/en/about-claude/pricing),
+[OpenRouter catalog](https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties).

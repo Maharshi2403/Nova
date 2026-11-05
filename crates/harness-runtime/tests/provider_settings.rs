@@ -54,3 +54,50 @@ fn unknown_catalog_metadata_is_never_free_or_ready() {
     assert!(model.ready());
     assert_eq!(model.input_usd_per_million_tokens, Some(2.));
 }
+#[test]
+fn saved_routes_generate_real_registry_and_credentials_stay_scoped() {
+    let mut settings = ProviderSettings::default();
+    for (id, kind, base) in [
+        ("code", ProviderKind::Openai, "https://api.openai.com/v1"),
+        (
+            "review",
+            ProviderKind::Anthropic,
+            "https://api.anthropic.com/v1",
+        ),
+    ] {
+        let profile = ProviderProfile {
+            id: id.into(),
+            kind,
+            base_url: base.into(),
+            credential: CredentialRef::Environment {
+                variable: "NO_KEY_READ_IN_THIS_TEST".into(),
+            },
+        };
+        let model_id = if kind == ProviderKind::Openai {
+            "gpt-6.1-sol"
+        } else {
+            "claude-sonnet-5-5"
+        };
+        settings.models.push(
+            harness_runtime::catalog::normalize(&profile, &serde_json::json!({"id":model_id}))
+                .unwrap(),
+        );
+        settings.providers.push(profile);
+    }
+    settings
+        .routes
+        .insert("review".into(), "review/claude-sonnet-5-5".into());
+    let config = settings.live_config().unwrap();
+    assert_eq!(
+        config.roles[&harness_core::domain::UseCase::Review].high_model,
+        "review/claude-sonnet-5-5"
+    );
+    let env = settings.providers[1].adapter_env("fixture-only");
+    assert!(
+        env.iter()
+            .any(|(k, v)| k == "NOVA_PROVIDER_NAME" && v == "review")
+    );
+    assert!(!env.iter().any(|(k, _)| k == "OPENAI_API_KEY"));
+    settings.models[1].input_usd_per_million_tokens = None;
+    assert!(settings.live_config().is_err());
+}

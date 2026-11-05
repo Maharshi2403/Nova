@@ -304,3 +304,137 @@ impl ProviderStore {
             .map_err(|_| "configured intelligence Python does not exist".into())
     }
 }
+
+/// Resolved credentials are never serializable or printable.
+pub struct Connection {
+    pub profile: ProviderProfile,
+    pub key: String,
+}
+pub type Connections = std::collections::BTreeMap<String, Connection>;
+impl ProviderStore {
+    pub fn connections(&self, config: &crate::live::LiveConfig) -> Result<Connections, String> {
+        let settings = self.load()?;
+        let mut connections = Connections::new();
+        for model in config.registry.models.iter().filter(|m| m.available) {
+            if connections.contains_key(&model.provider) {
+                continue;
+            }
+            let profile = settings
+                .providers
+                .iter()
+                .find(|p| p.id == model.provider)
+                .cloned()
+                .or_else(|| {
+                    let (kind, base, variable) = match model.provider.as_str() {
+                        "openai" => (
+                            ProviderKind::Openai,
+                            "https://api.openai.com/v1",
+                            "OPENAI_API_KEY",
+                        ),
+                        "anthropic" => (
+                            ProviderKind::Anthropic,
+                            "https://api.anthropic.com/v1",
+                            "ANTHROPIC_API_KEY",
+                        ),
+                        _ => return None,
+                    };
+                    Some(ProviderProfile {
+                        id: model.provider.clone(),
+                        kind,
+                        base_url: base.into(),
+                        credential: CredentialRef::Environment {
+                            variable: variable.into(),
+                        },
+                    })
+                })
+                .ok_or("model provider is not configured; use nova providers add")?;
+            if config
+                .providers
+                .get(&model.provider)
+                .is_some_and(|kind| *kind != profile.kind)
+            {
+                return Err("model config disagrees with saved provider protocol".into());
+            }
+            let key = profile.resolve(&crate::vault::NativeVault)?;
+            connections.insert(model.provider.clone(), Connection { profile, key });
+        }
+        Ok(connections)
+    }
+}
+impl ProviderSettings {
+    pub fn live_config(&self) -> Result<crate::live::LiveConfig, String> {
+        use harness_core::{
+            registry::{ModelDefinition, ModelRegistry, PrivacyClass},
+            routing::RoutingPolicy,
+        };
+        let mut ready: Vec<_> = self.models.iter().filter(|m| m.ready()).collect();
+        ready.sort_by(|a, b| {
+            a.input_usd_per_million_tokens
+                .unwrap()
+                .total_cmp(&b.input_usd_per_million_tokens.unwrap())
+                .then(a.id.cmp(&b.id))
+        });
+        let cheapest = ready
+            .first()
+            .ok_or("no ready models; connect a provider or configure model metadata")?;
+        let select = |tier: &str| {
+            ready
+                .iter()
+                .find(|m| m.tier == tier)
+                .copied()
+                .unwrap_or(cheapest)
+                .id
+                .clone()
+        };
+        let routing = RoutingPolicy {
+            low_model: select("low"),
+            medium_model: select("medium"),
+            high_model: select("high"),
+        };
+        let mut roles = BTreeMap::new();
+        for (role, id) in &self.routes {
+            if !ready.iter().any(|m| &m.id == id) {
+                return Err("route selects a model without verified metadata".into());
+            }
+            let role = serde_json::from_value(serde_json::Value::String(role.clone()))
+                .map_err(|_| "unknown route use case")?;
+            roles.insert(
+                role,
+                RoutingPolicy {
+                    low_model: id.clone(),
+                    medium_model: id.clone(),
+                    high_model: id.clone(),
+                },
+            );
+        }
+        Ok(crate::live::LiveConfig {
+            registry: ModelRegistry {
+                models: ready
+                    .into_iter()
+                    .map(|m| ModelDefinition {
+                        id: m.id.clone(),
+                        provider: m.provider.clone(),
+                        model_id: m.model_id.clone(),
+                        supported_tools: vec!["repo.patch".into(), "repo.read".into()],
+                        structured_output: true,
+                        context_window: m.context_window.unwrap(),
+                        max_output_tokens: m.max_output_tokens.unwrap().min(8192),
+                        input_usd_per_million_tokens: m.input_usd_per_million_tokens.unwrap(),
+                        output_usd_per_million_tokens: m.output_usd_per_million_tokens.unwrap(),
+                        available: true,
+                        privacy: PrivacyClass::Private,
+                    })
+                    .collect(),
+            },
+            routing,
+            providers: self
+                .providers
+                .iter()
+                .map(|p| (p.id.clone(), p.kind))
+                .collect(),
+            roles,
+            run_cap_microdollars: self.run_cap_microdollars,
+            daily_cap_microdollars: self.daily_cap_microdollars,
+        })
+    }
+}

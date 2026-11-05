@@ -41,7 +41,10 @@ struct ExecutionOptions {
     python: PathBuf,
     commands: Vec<Vec<String>>,
     concurrency: usize,
-    live: Option<(crate::live::LiveConfig, Arc<String>)>,
+    live: Option<(
+        crate::live::LiveConfig,
+        Arc<crate::provider_config::Connections>,
+    )>,
 }
 struct RunGuard {
     running: Arc<Mutex<HashSet<String>>>,
@@ -143,13 +146,13 @@ impl Engine {
             }
         }
         let live = if let Some(config) = live {
-            let key = std::env::var("OPENAI_API_KEY")
-                .map_err(|_| "live execution requires a daemon-scoped API key")?;
-            if key.trim().is_empty() {
-                return Err("empty provider credentials".into());
-            }
-            harness_core::redaction::register_secret(&key);
-            Some((config, Arc::new(key)))
+            let root = self
+                .root
+                .parent()
+                .ok_or("missing provider settings directory")?;
+            let connections =
+                crate::provider_config::ProviderStore::new(root).connections(&config)?;
+            Some((config, Arc::new(connections)))
         } else {
             None
         };
@@ -278,7 +281,10 @@ struct Execution {
     manager: Arc<WorktreeManager>,
     integrator: Arc<Integrator>,
     capacity: Arc<Semaphore>,
-    live: Option<(crate::live::LiveConfig, Arc<String>)>,
+    live: Option<(
+        crate::live::LiveConfig,
+        Arc<crate::provider_config::Connections>,
+    )>,
 }
 struct Broker {
     inner: RepoCommandBroker,
@@ -416,14 +422,18 @@ impl Execution {
         let live = self
             .live
             .as_ref()
-            .map(|(config, key)| {
-                config.select(&task).map(|model| {
-                    crate::live::LiveBroker::new(
+            .map(|(config, connections)| {
+                config.select(&task).and_then(|model| {
+                    let connection = connections
+                        .get(&model.provider)
+                        .ok_or("selected provider is not configured")?;
+                    Ok(crate::live::LiveBroker::new(
                         model,
                         &task,
                         self.python.clone(),
-                        key.as_ref().clone(),
+                        connection.key.clone(),
                     )
+                    .with_profile(connection.profile.clone()))
                 })
             })
             .transpose()?;

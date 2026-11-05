@@ -73,3 +73,31 @@ async fn credential_scoped_adapter_fails_closed_without_key_over_real_ipc() {
     assert_eq!(response.0.error.as_deref(), Some("permanent_provider"));
     assert!(response.1.unwrap().cost_usd.is_none());
 }
+
+#[test]
+fn use_case_routes_across_providers_without_bypassing_policy() {
+    use harness_core::domain::UseCase;
+    use harness_runtime::provider_config::ProviderKind;
+    let (mut task, mut config) = fixture();
+    let mut claude = config.registry.models[0].clone();
+    claude.id = "claude/reviewer".into();
+    claude.provider = "claude".into();
+    claude.model_id = "review-model".into();
+    config.registry.models.push(claude);
+    config
+        .providers
+        .insert("claude".into(), ProviderKind::Anthropic);
+    config.roles.insert(
+        UseCase::Review,
+        harness_core::routing::RoutingPolicy {
+            low_model: "claude/reviewer".into(),
+            medium_model: "claude/reviewer".into(),
+            high_model: "claude/reviewer".into(),
+        },
+    );
+    assert_eq!(config.select(&task).unwrap().provider, "openai");
+    task.spec.use_case = UseCase::Review;
+    assert_eq!(config.select(&task).unwrap().provider, "claude");
+    config.registry.models[1].structured_output = false;
+    assert!(config.select(&task).is_err());
+}

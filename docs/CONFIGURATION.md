@@ -11,7 +11,7 @@
 | execute | `--python PATH` | Absolute installed intelligence venv interpreter |
 | execute | `--test-commands FILE` | JSON array of exact accepted test argv arrays |
 | execute | `--concurrency 1..2` | Default two; daemon-wide execution capacity two |
-| execute | `--live --model-config FILE` | Both required to enable live coding |
+| execute | `--live [--model-config FILE]` | `--live` enables saved providers; model-config is optional |
 | daemon env | `OPENAI_API_KEY` | Only for explicitly opted-in provider calls |
 | tests | `HARNESS_PYTHON` | Optional test worker interpreter override |
 
@@ -39,3 +39,5 @@ window. Acceptance is never silently truncated. Coder loops have at most 16 turn
 at most three transient retries per turn and an assignment deadline. Rust also
 limits aggregate tool calls, output tokens and estimated cost. Provider responses:
 2 MiB. Event polling: 1000 rows, 25 seconds, 64 concurrent waiters.
+
+Saved provider profiles and use-case routes are documented in [PROVIDERS.md](PROVIDERS.md).

@@ -1,7 +1,7 @@
 //! Rust owns routing, per-call grants and credentials. Coder processes never get API keys.
 use crate::worker::{Worker, WorkerSpec};
 use harness_core::{
-    domain::Task,
+    domain::{Task, UseCase},
     messages::{PriceSource, ToolRequest, ToolResponse, Usage},
     protocol::{Envelope, MessageKind, ProtocolVersion},
     registry::{ModelDefinition, ModelRegistry},
@@ -13,6 +13,10 @@ use std::{path::PathBuf, time::Duration};
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct LiveConfig {
+    #[serde(default)]
+    pub providers: std::collections::BTreeMap<String, crate::provider_config::ProviderKind>,
+    #[serde(default)]
+    pub roles: std::collections::BTreeMap<UseCase, RoutingPolicy>,
     pub registry: ModelRegistry,
     pub routing: RoutingPolicy,
     pub run_cap_microdollars: u64,
@@ -24,7 +28,7 @@ impl LiveConfig {
         self.registry.validate().map_err(|e| e.to_string())?;
         let selected = route(
             &self.registry,
-            &self.routing,
+            self.roles.get(&task.spec.use_case).unwrap_or(&self.routing),
             task.spec.complexity,
             task.spec.risk,
         )
@@ -33,7 +37,8 @@ impl LiveConfig {
             .registry
             .require(&selected.model_id, Some("repo.patch"), true)
             .map_err(|e| e.to_string())?;
-        if model.provider != "openai"
+        if (!matches!(model.provider.as_str(), "openai" | "anthropic")
+            && !self.providers.contains_key(&model.provider))
             || model.context_window < 8192
             || self.run_cap_microdollars == 0
             || self.daily_cap_microdollars == 0
@@ -54,6 +59,7 @@ pub struct LiveBroker {
     grant: Option<(u32, usize)>,
     python: PathBuf,
     api_key: String,
+    profile: crate::provider_config::ProviderProfile,
     run: String,
     task: String,
     attempt: u32,
@@ -61,19 +67,44 @@ pub struct LiveBroker {
 impl LiveBroker {
     pub fn new(model: ModelDefinition, task: &Task, python: PathBuf, api_key: String) -> Self {
         harness_core::redaction::register_secret(&api_key);
+        let (kind, base_url, variable) = if model.provider == "anthropic" {
+            (
+                crate::provider_config::ProviderKind::Anthropic,
+                "https://api.anthropic.com/v1",
+                "ANTHROPIC_API_KEY",
+            )
+        } else {
+            (
+                crate::provider_config::ProviderKind::Openai,
+                "https://api.openai.com/v1",
+                "OPENAI_API_KEY",
+            )
+        };
         Self {
-            model,
+            model: model.clone(),
             task_cap: task.spec.limits.cost_cap_usd,
             authorized_cost: 0.0,
             remaining_output: u64::from(task.spec.limits.max_output_tokens),
             calls: 0,
             grant: None,
             python,
+            profile: crate::provider_config::ProviderProfile {
+                id: model.provider.clone(),
+                kind,
+                base_url: base_url.into(),
+                credential: crate::provider_config::CredentialRef::Environment {
+                    variable: variable.into(),
+                },
+            },
             api_key,
             run: task.run_id.to_string(),
             task: task.id().to_string(),
             attempt: task.attempt,
         }
+    }
+    pub fn with_profile(mut self, profile: crate::provider_config::ProviderProfile) -> Self {
+        self.profile = profile;
+        self
     }
     pub fn context_cap(&self) -> usize {
         (self
@@ -154,10 +185,7 @@ impl LiveBroker {
         spec.args = ["-I", "-m", "harness_ai", "provider"]
             .map(Into::into)
             .to_vec();
-        spec.env = vec![
-            ("HARNESS_ENABLE_LIVE".into(), "1".into()),
-            ("OPENAI_API_KEY".into(), self.api_key.clone()),
-        ];
+        spec.env = self.profile.adapter_env(&self.api_key);
         // Only this adapter subprocess gets credentials; cwd is never a repository.
         let outcome = invoke(
             spec,
@@ -199,7 +227,7 @@ impl LiveBroker {
         let input = result["usage"]["input_tokens"].as_u64();
         let output = result["usage"]["output_tokens"].as_u64();
         let cached = result["usage"]["cached_input_tokens"].as_u64();
-        if result["provider"].as_str() != Some("openai")
+        if result["provider"].as_str() != Some(self.model.provider.as_str())
             || result["model_id"].as_str() != Some(self.model.model_id.as_str())
             || input.is_some_and(|n| n > input_bound as u64)
             || output.is_some_and(|n| n > u64::from(output_cap))

@@ -56,8 +56,25 @@ an untrusted project that cannot execute. Worktrees are not OS sandboxes.
 
 See [operator workflows](docs/OPERATIONS.md), [configuration](docs/CONFIGURATION.md),
 [trust boundary](docs/TRUST_BOUNDARY.md), and [control API](docs/CONTROL_API.md).
-Live coding requires `--live --model-config`, task/run/daily budgets, and a
-daemon-scoped `OPENAI_API_KEY`. Never put credentials in plans or config files.
+Connect providers once, then choose models for each use case:
+
+```sh
+nova providers add openai
+nova providers add anthropic
+nova models list
+nova routes set coding openai/gpt-6.1-sol
+nova routes set review anthropic/claude-sonnet-5-5
+nova routes list
+```
+
+Setup prompts for each API key privately, stores it in your OS credential vault,
+and discovers models available to your account. Use IDs printed by `models list`.
+OpenAI-compatible services (including OpenRouter and local servers) use
+`nova providers add NAME --kind compatible --base-url URL`; `openrouter` is also a
+preset. See [provider setup](docs/PROVIDERS.md) for metadata and routing details.
+Live coding requires `--live` and task/run/daily budgets. Saved providers replace
+the need for a model-config file; advanced `--model-config FILE` remains supported.
+Never put credentials in plans or config files.
 Paid-provider smoke testing has not been performed as part of this build.
 
 ## Develop

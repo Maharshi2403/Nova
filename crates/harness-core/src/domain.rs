@@ -231,10 +231,25 @@ impl TaskLimits {
     }
 }
 
+/// Intended expertise; older plans default to coding.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UseCase {
+    #[default]
+    Coding,
+    Planning,
+    Review,
+    Debugging,
+    Architecture,
+    Fast,
+}
+
 /// Task as proposed by the planner (mirrors `schemas/task.schema.json`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TaskSpec {
+    #[serde(default)]
+    pub use_case: UseCase,
     pub id: TaskId,
     pub title: String,
     pub description: String,

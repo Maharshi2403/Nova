@@ -137,6 +137,7 @@ def task_handoff(task: TaskProposal) -> dict[str, Any]:
             "acceptance",
             "limits",
             "complexity",
+            "use_case",
             "risk",
         },
         exclude_none=True,

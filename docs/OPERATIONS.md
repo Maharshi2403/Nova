@@ -48,20 +48,21 @@ yourself when satisfied. Nothing is pushed automatically.
 
 ## Live coding
 
-Set OPENAI_API_KEY only in the environment that starts the daemon. Never put it in
-a plan, command argument, registry, stdout or committed file. Coder workers receive
-no credentials: Rust invokes a separate credential-scoped adapter for each bounded
-provider request. Test/generated command environments are scrubbed.
-
-Copy `config/live.example.json` and review it. Replace the placeholder model ID,
-capabilities, context limits and prices with values valid for your account. The
-placeholder is deliberately unavailable. Config budgets are integer microdollars;
-each task's `cost_cap_usd` is USD. Include authorization/completion broker calls in
-the task's tool-call limit.
+Connect providers with `nova providers add openai` and/or
+`nova providers add anthropic`. The terminal hides each API key and stores it in
+the native credential vault. See [provider setup](PROVIDERS.md) for compatible
+endpoints, account discovery and per-use-case routing. Coder processes receive no
+credentials; only a dedicated provider helper gets its selected connection's key.
 
 ```text
-nova execute RUN_ID --python ABSOLUTE_PYTHON --test-commands approved-tests.json --live --model-config reviewed-models.json
+nova execute RUN_ID --test-commands approved-tests.json --live
 ```
+
+The saved Python interpreter is reused (or pass `--python ABSOLUTE_PYTHON`). An
+advanced reviewed `--model-config FILE` overrides the generated registry/routes;
+`config/live.example.json` is deliberately unavailable until edited. Legacy native
+OpenAI/Anthropic configurations can use daemon-scoped OPENAI_API_KEY or
+ANTHROPIC_API_KEY when no saved profile exists. Keys never belong in argv or plans.
 
 Rust chooses the configured complexity/risk route and reserves each task's full cap
 before dispatch. Every request/retry must fit its input/output grant and remaining

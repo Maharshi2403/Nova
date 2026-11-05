@@ -106,7 +106,7 @@ def run_mock_assignment(start: Envelope, stdin: BinaryIO, stdout: BinaryIO) -> N
         )
         return
     if (
-        assignment.model.provider == "openai"
+        assignment.model.provider != "mock"
         and assignment.role == "coder"
         and "model.complete" in assignment.allowed_tools
     ):

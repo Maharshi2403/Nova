@@ -64,7 +64,9 @@ fn task_json_round_trip() {
     let back: Task = serde_json::from_str(&text).unwrap();
     assert_eq!(back, task);
     // The spec serializes back to the contract shape.
-    assert_eq!(serde_json::to_value(&task.spec).unwrap(), spec_json());
+    let mut expected = spec_json();
+    expected["use_case"] = "coding".into();
+    assert_eq!(serde_json::to_value(&task.spec).unwrap(), expected);
 }
 
 #[test]

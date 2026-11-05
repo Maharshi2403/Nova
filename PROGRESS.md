@@ -363,3 +363,21 @@ Windows native execution is not tested on this Mac.
 Validation: provider settings tests 2 passed; CLI tests 6 passed (loopback lifecycle
 requires sandbox escalation); workspace Clippy with warnings denied passed.
 Next H-064 wires saved profiles into live execution and use-case routes.
+
+## H-064 — saved multi-provider execution and task use cases
+
+Task proposals now carry coding/planning/review/debugging/architecture/fast use cases,
+with backward-compatible coding defaults. Saved models generate a validated live
+registry and deterministic complexity/risk defaults; `nova routes set/list/reset`
+adds explicit per-use-case model choices. The CLI generates live config from saved
+profiles without an operator-authored JSON model registry. Rust resolves each
+provider's credential reference, keeps it out of coder/verifier subprocesses,
+and passes only the selected provider connection to its bounded adapter invocation.
+Legacy explicit OpenAI/Anthropic env-key configs still work. Provider results retain
+saved connection identity for usage and budget accounting. The complete provider
+workflow is documented in docs/PROVIDERS.md. No paid calls or credentials were used.
+
+Validation: Python 102 pytest passed with local provider fixtures; Ruff and strict
+mypy passed (32 source files); workspace Rust tests, formatting and Clippy pass.
+Offline provider CLI route/setup/removal and cross-provider selection tests pass.
+Hosted Windows CI and an authorized live paid smoke remain release gates.

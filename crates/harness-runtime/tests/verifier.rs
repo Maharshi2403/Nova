@@ -25,6 +25,7 @@ async fn task_with_command(command: Vec<String>) -> (tempfile::TempDir, Store, T
     let task = Task {
         run_id,
         spec: TaskSpec {
+            use_case: Default::default(),
             id: TaskId::new("task-1").unwrap(),
             title: "Verify command".into(),
             description: "Run a declared test command.".into(),

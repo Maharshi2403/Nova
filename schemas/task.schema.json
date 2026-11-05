@@ -7,6 +7,7 @@
   "additionalProperties": false,
   "required": ["id", "title", "description", "complexity", "risk", "agent_priority", "manual_priority", "dependencies", "candidate_paths", "acceptance", "limits"],
   "properties": {
+    "use_case": {"enum": ["coding", "planning", "review", "debugging", "architecture", "fast"], "default": "coding"},
     "id": {"type": "string", "minLength": 1, "maxLength": 128},
     "title": {"type": "string", "minLength": 3, "maxLength": 200},
     "description": {"type": "string", "minLength": 10, "maxLength": 8000},

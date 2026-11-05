@@ -256,3 +256,42 @@ pub fn models(root: &Path, command: ModelCommand) -> Result<String, String> {
         }
     }
 }
+
+#[derive(Debug, Subcommand)]
+pub enum RouteCommand {
+    List,
+    Set { use_case: String, model: String },
+    Reset,
+}
+pub fn routes(root: &Path, command: RouteCommand) -> Result<String, String> {
+    let store = ProviderStore::new(root);
+    match command {
+        RouteCommand::List => {
+            let config = store.load()?.live_config()?;
+            serde_json::to_string_pretty(&config).map_err(|_| "cannot format routing".into())
+        }
+        RouteCommand::Set { use_case, model } => {
+            let _: harness_core::domain::UseCase = serde_json::from_value(
+                serde_json::Value::String(use_case.clone()),
+            )
+            .map_err(
+                |_| "use case must be coding, planning, review, debugging, architecture or fast",
+            )?;
+            store.update(|s| {
+                if !s.models.iter().any(|m| m.id == model && m.ready()) {
+                    return Err("route requires a ready model".into());
+                }
+                s.routes.insert(use_case, model);
+                Ok(())
+            })?;
+            Ok("Route saved.".into())
+        }
+        RouteCommand::Reset => {
+            store.update(|s| {
+                s.routes.clear();
+                Ok(())
+            })?;
+            Ok("Routes reset to complexity/risk defaults.".into())
+        }
+    }
+}

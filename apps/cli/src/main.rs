@@ -26,6 +26,10 @@ enum Command {
         #[command(subcommand)]
         command: providers::ProviderCommand,
     },
+    Routes {
+        #[command(subcommand)]
+        command: providers::RouteCommand,
+    },
     Models {
         #[command(subcommand)]
         command: providers::ModelCommand,
@@ -49,13 +53,13 @@ enum Command {
     Execute {
         run_id: String,
         #[arg(long)]
-        python: PathBuf,
+        python: Option<PathBuf>,
         /// JSON array of exact argv arrays approved for verifier execution.
         #[arg(long)]
         test_commands: PathBuf,
         #[arg(long, default_value_t = 2)]
         concurrency: usize,
-        #[arg(long, requires = "model_config")]
+        #[arg(long)]
         live: bool,
         #[arg(long, requires = "live")]
         model_config: Option<PathBuf>,
@@ -182,6 +186,9 @@ fn execute(cli: Cli) -> Result<String, CliError> {
         Command::Providers { command } => {
             return providers::providers(&data_dir, command).map_err(CliError::Startup);
         }
+        Command::Routes { command } => {
+            return providers::routes(&data_dir, command).map_err(CliError::Startup);
+        }
         Command::Models { command } => {
             return providers::models(&data_dir, command).map_err(CliError::Startup);
         }
@@ -189,7 +196,8 @@ fn execute(cli: Cli) -> Result<String, CliError> {
     };
     let client = Client::from_data_dir(&data_dir)?;
     let response = match command {
-        Command::Providers { .. }
+        Command::Routes { .. }
+        | Command::Providers { .. }
         | Command::Models { .. }
         | Command::Start
         | Command::Stop
@@ -216,6 +224,9 @@ fn execute(cli: Cli) -> Result<String, CliError> {
             live,
             model_config,
         } => {
+            let python = harness_runtime::provider_config::ProviderStore::new(&data_dir)
+                .python(python)
+                .map_err(CliError::Startup)?;
             let commands = std::fs::read_to_string(test_commands).map_err(CliError::Input)?;
             let commands: Vec<Vec<String>> =
                 serde_json::from_str(&commands).map_err(CliError::DiscoveryJson)?;
@@ -229,6 +240,20 @@ fn execute(cli: Cli) -> Result<String, CliError> {
                         })
                 })
                 .transpose()?;
+            let config = if live && config.is_none() {
+                Some(
+                    serde_json::to_value(
+                        harness_runtime::provider_config::ProviderStore::new(&data_dir)
+                            .load()
+                            .map_err(CliError::Startup)?
+                            .live_config()
+                            .map_err(CliError::Startup)?,
+                    )
+                    .map_err(CliError::DiscoveryJson)?,
+                )
+            } else {
+                config
+            };
             client.request("POST", &format!("/v1/runs/{run_id}/execute"), Some(serde_json::json!({"python":python, "allowed_test_commands":commands, "concurrency":concurrency,"live":live,"model_config":config})))?
         }
         Command::Init {

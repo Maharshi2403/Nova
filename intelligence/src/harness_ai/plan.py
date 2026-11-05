@@ -7,6 +7,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 Level = Literal["low", "medium", "high"]
+UseCase = Literal["coding", "planning", "review", "debugging", "architecture", "fast"]
 NonEmpty = Annotated[str, StringConstraints(min_length=1)]
 
 
@@ -43,6 +44,7 @@ class TaskProposal(BaseModel):
     id: str = Field(min_length=1, max_length=128)
     title: str = Field(min_length=3, max_length=200)
     description: str = Field(min_length=10, max_length=8000)
+    use_case: UseCase = "coding"
     complexity: Level
     risk: Level
     agent_priority: int = Field(ge=0, le=100)

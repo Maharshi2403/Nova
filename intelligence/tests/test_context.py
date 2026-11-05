@@ -112,3 +112,14 @@ def test_planner_cap_before_provider_and_cache_usage_preserved() -> None:
     assert json.loads(provider.calls[0][1]["content"])["required"]["idea"] == "A small API"
     assert result.usage.cached_input_tokens == 40
     assert result.usage.input_tokens == 100
+
+
+def test_use_case_survives_compact_handoff() -> None:
+    fixture = Path(__file__).resolve().parents[2] / "tests/fixtures/plans/valid_plan.json"
+    plan = json.loads(fixture.read_text())
+    plan["tasks"][0]["use_case"] = "review"
+    task = PlanProposal.model_validate(plan).tasks[0]
+    assert task_handoff(task)["use_case"] == "review"
+    plan["tasks"][0]["use_case"] = "unrecognized"
+    with pytest.raises(ValueError):
+        PlanProposal.model_validate(plan)

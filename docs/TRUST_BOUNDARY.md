@@ -28,7 +28,7 @@ bypass this gate. Approved commands still require exact argv authorization.
   explicitly reviewed at execution launch; a test runner can execute arbitrary repo
   code and must not be treated as intrinsically safe.
 - Coder workers have scrubbed environments and isolated imports. Only a separate
-  provider adapter gets the daemon-scoped key for one authorized bounded request.
+  provider adapter gets only the selected saved credential for one authorized bounded request.
   Rust records provider usage; uncertain calls retain reserved spend.
 - Local API tokens are random, stored with restrictive Unix permissions, absent
   from worker environments, and never placed in URLs. Browser-origin requests are

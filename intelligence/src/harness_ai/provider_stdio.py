@@ -90,7 +90,7 @@ def serve_provider(stdin: BinaryIO, stdout: BinaryIO) -> int:
             response = ToolResponse(
                 ok=True, result=result.model_copy(update={"provider": name}).model_dump()
             )
-    except TransientProviderError:
+    except (TransientProviderError, TimeoutError):
         response = ToolResponse(ok=False, error="transient_provider")
     except (PermanentProviderError, ValueError, TypeError, KeyError):
         response = ToolResponse(ok=False, error="permanent_provider")

@@ -97,6 +97,7 @@ async fn fixture() -> Fixture {
     let task = Task {
         run_id,
         spec: TaskSpec {
+            use_case: Default::default(),
             id: TaskId::new("task-1").unwrap(),
             title: "Integrate change".into(),
             description: "Integrate a verified task commit.".into(),
