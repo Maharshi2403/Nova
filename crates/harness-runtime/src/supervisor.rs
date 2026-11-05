@@ -60,6 +60,14 @@ pub enum SuperviseError {
 #[allow(async_fn_in_trait)]
 pub trait ToolBroker {
     async fn handle(&mut self, request: &ToolRequest) -> ToolResponse;
+    /// Persist each per-call usage frame before processing subsequent worker output.
+    async fn record_usage(
+        &mut self,
+        _message_id: Uuid,
+        _usage: &harness_core::messages::Usage,
+    ) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 fn now() -> String {
@@ -157,6 +165,10 @@ async fn drive<B: ToolBroker>(
         match session.accept(&envelope)? {
             WorkerMessage::Progress(_) | WorkerMessage::Heartbeat => {}
             WorkerMessage::Usage(usage) => {
+                broker
+                    .record_usage(envelope.message_id, &usage)
+                    .await
+                    .map_err(SuperviseError::Protocol)?;
                 output_tokens = output_tokens.saturating_add(usage.output_tokens.unwrap_or(0));
                 if let Some(amount) = usage.cost_usd {
                     if !amount.is_finite() || amount < 0.0 {

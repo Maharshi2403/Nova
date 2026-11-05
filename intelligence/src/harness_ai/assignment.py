@@ -47,6 +47,7 @@ class ToolResponse(_Strict):
 class Usage(_Strict):
     provider: str
     model_id: str
+    cached_input_tokens: int | None = None
     input_tokens: int | None
     output_tokens: int | None
     cost_usd: float | None

@@ -12,6 +12,7 @@ pub mod git_artifacts;
 pub mod leases;
 pub mod plans;
 pub mod repository;
+pub mod usage;
 pub mod verification;
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations");

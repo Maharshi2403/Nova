@@ -652,9 +652,29 @@ async fn list_usage(
     Query(query): Query<UsageQuery>,
 ) -> ApiResult<Vec<serde_json::Value>> {
     let _run = load_run(&state.store, query.run_id).await?;
-    // Usage records are introduced with model accounting (H-040); returning an empty
-    // collection is accurate until an authoritative record exists.
-    Ok((StatusCode::OK, Json(Vec::new())))
+    let records = state
+        .store
+        .list_usage(&_run.id, None)
+        .await
+        .map_err(|error| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "usage_read_failed",
+                error.to_string(),
+            )
+        })?;
+    let values = records
+        .iter()
+        .map(serde_json::to_value)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "usage_read_failed",
+                error.to_string(),
+            )
+        })?;
+    Ok((StatusCode::OK, Json(values)))
 }
 
 async fn decide_approval(

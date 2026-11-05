@@ -36,7 +36,8 @@ async fn fresh_db_migrates() {
             "runs",
             "task_dependencies",
             "tasks",
-            "test_results"
+            "test_results",
+            "usage_records"
         ]
     );
     let mode: String = sqlx::query_scalar("PRAGMA journal_mode")

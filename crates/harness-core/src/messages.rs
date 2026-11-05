@@ -71,6 +71,8 @@ pub struct Usage {
     pub provider: String,
     pub model_id: String,
     pub input_tokens: Option<u64>,
+    #[serde(default)]
+    pub cached_input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
     pub cost_usd: Option<f64>,
     pub price_source: PriceSource,
