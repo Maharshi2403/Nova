@@ -66,6 +66,13 @@ impl Drop for Service {
 }
 #[test]
 fn native_bridge_review_approve_execute_and_evidence_without_paid_models() {
+    verify_workflow(false);
+}
+#[test]
+fn native_bridge_snapshot_executes_with_unfinished_files_preserved() {
+    verify_workflow(true);
+}
+fn verify_workflow(snapshot: bool) {
     let dir = tempfile::tempdir().unwrap();
     let state = dir.path().join("state");
     let repo = dir.path().join("repo");
@@ -104,6 +111,10 @@ fn native_bridge_review_approve_execute_and_evidence_without_paid_models() {
             .unwrap()
             .success()
     );
+    if snapshot {
+        std::fs::write(repo.join("README.md"), "unfinished tracked work\n").unwrap();
+        std::fs::write(repo.join("draft.txt"), "private unfinished draft\n").unwrap();
+    }
     call(&state, json!({"op":"start"}));
     let _service = Service(state.clone());
     let project = api(
@@ -118,14 +129,14 @@ fn native_bridge_review_approve_execute_and_evidence_without_paid_models() {
     let command = json!([
         python,
         "-c",
-        "from pathlib import Path; assert Path('output.txt').read_text().strip() == 'Mock task desktop-task'"
+        "from pathlib import Path; assert Path('output.txt').read_text().strip() == 'Mock task desktop-task'; assert Path('README.md').read_text().strip() == 'fixture'"
     ]);
     let plan = json!({"schema_version":"1.0","project_id":project["id"],"idea":"Create a disposable desktop fixture","requirements":["Write the expected fixture"],"assumptions":[],"architecture":{"recommended":"A single disposable fixture file","alternatives":[],"risks":[]},"tasks":[{"id":"desktop-task","title":"Create fixture file","description":"Write the expected synthetic fixture file.","use_case":"coding","complexity":"low","risk":"low","agent_priority":50,"manual_priority":null,"dependencies":[],"candidate_paths":["output.txt"],"acceptance":[{"kind":"test","command":command}],"limits":{"max_tool_calls":4,"max_output_tokens":1000,"timeout_seconds":30,"cost_cap_usd":0.01}}]});
     let draft = call(&state, json!({"op":"create_plan","plan":plan}));
     let run = draft["run"]["id"].as_str().unwrap();
     let denied = request(
         &state,
-        json!({"op":"execute","run_id":run,"version":1,"live":false}),
+        json!({"op":"execute","run_id":run,"version":1,"live":false,"committed_snapshot":snapshot}),
     );
     assert!(!denied.status.success());
     api(
@@ -134,9 +145,25 @@ fn native_bridge_review_approve_execute_and_evidence_without_paid_models() {
         &format!("/v1/plans/{run}/1/approve"),
         Value::Null,
     );
+    if snapshot {
+        let denied = request(
+            &state,
+            json!({"op":"execute","run_id":run,"version":1,"live":false}),
+        );
+        assert!(!denied.status.success());
+        assert_eq!(
+            api(
+                &state,
+                "GET",
+                &format!("/v1/runs/{run}/source"),
+                Value::Null
+            ),
+            Value::Null
+        );
+    }
     let accepted = call(
         &state,
-        json!({"op":"execute","run_id":run,"version":1,"live":false}),
+        json!({"op":"execute","run_id":run,"version":1,"live":false,"committed_snapshot":snapshot}),
     );
     assert_eq!(accepted["execution"], "started");
     let deadline = Instant::now() + Duration::from_secs(45);
@@ -156,8 +183,26 @@ fn native_bridge_review_approve_execute_and_evidence_without_paid_models() {
     );
     assert_eq!(evidence["tests"][0]["exit_code"], 0);
     assert!(evidence["commit"]["integration_commit_sha"].is_string());
-    let snapshot = call(&state, json!({"op":"snapshot"}));
-    assert_eq!(snapshot["runs"][0]["plan_version"], 1);
-    assert_eq!(snapshot["runs"][0]["state"], "completed");
+    let inventory = call(&state, json!({"op":"snapshot"}));
+    assert_eq!(inventory["runs"][0]["plan_version"], 1);
+    assert_eq!(inventory["runs"][0]["state"], "completed");
     assert!(!repo.join("output.txt").exists());
+    let source = api(
+        &state,
+        "GET",
+        &format!("/v1/runs/{run}/source"),
+        Value::Null,
+    );
+    assert!(source["base_sha"].is_string());
+    assert_eq!(source["committed_snapshot"], snapshot);
+    if snapshot {
+        assert_eq!(
+            std::fs::read_to_string(repo.join("README.md")).unwrap(),
+            "unfinished tracked work\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(repo.join("draft.txt")).unwrap(),
+            "private unfinished draft\n"
+        );
+    }
 }

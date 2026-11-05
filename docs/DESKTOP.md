@@ -25,8 +25,11 @@ defaults in the Model routes view.
 
 Add an existing committed Git repository with a name and explicit local trust choice.
 A project can be added while it has uncommitted changes; import leaves those files
-untouched. Execution requires a clean working tree. Commit or stash your work
-before execution. Untrusted projects show “Trust needed” with an explicit Enable action. Enabling
+untouched. Execution review defaults to **Use committed snapshot**: it uses the last commit
+in isolated task/integration worktrees and leaves all unfinished files untouched.
+Uncommitted changes are excluded from that source. Turn snapshot mode off only
+when you want the strict clean-checkout workflow. The source revision is pinned
+per run and reused on resume; Details shows its hash. Untrusted projects show “Trust needed” with an explicit Enable action. Enabling
 local execution is a separate trust decision, and does not approve or execute a
 plan. Empty project registrations can be removed without deleting repository files;
 projects with runs are retained. Tests run with your user

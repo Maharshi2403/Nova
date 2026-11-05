@@ -207,6 +207,7 @@ fn api_router_with_lifecycle(
             .route("/plans/{run_id}/{version}/approve", post(approve_plan))
             .route("/runs", post(create_run))
             .route("/runs/{run_id}", get(get_run))
+            .route("/runs/{run_id}/source", get(execution_source))
             .route("/runs/{run_id}/pause", post(pause_run))
             .route("/runs/{run_id}/resume", post(resume_run))
             .route("/runs/{run_id}/cancel", post(cancel_run))
@@ -338,6 +339,8 @@ async fn healthz() -> Json<serde_json::Value> {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ExecuteRequest {
+    #[serde(default)]
+    committed_snapshot: bool,
     python: PathBuf,
     allowed_test_commands: Vec<Vec<String>>,
     concurrency: usize,
@@ -367,13 +370,26 @@ async fn execute_run(
             "execution runtime is not configured",
         )
     })?;
-    engine.launch_with_live(state.store, run.id.clone(), request.python, request.allowed_test_commands, request.concurrency, request.model_config).await.map_err(|error| api_error(StatusCode::CONFLICT, "execution_denied", if error.starts_with("working tree has uncommitted changes") { "Repository has uncommitted changes. Commit or stash your work before execution; Nova has left your files untouched." } else { "check trust, run approval, exact test commands, Python path, clean repository, routing and budgets" }))?;
+    engine.launch_configured(state.store, run.id.clone(), request.python, request.allowed_test_commands, request.concurrency, harness_runtime::engine::LaunchMode{live:request.model_config,committed_snapshot:request.committed_snapshot}).await.map_err(|error| api_error(StatusCode::CONFLICT, "execution_denied", if error.starts_with("working tree has uncommitted changes") { "Repository has uncommitted changes. Use committed snapshot in Execute, or commit/stash changes. Your files are untouched." } else { error.as_str() }))?;
     Ok((
         StatusCode::ACCEPTED,
         Json(
-            serde_json::json!({"run_id":run.id.to_string(), "execution":"started", "provider":if request.live {"configured"} else {"mock"}}),
+            serde_json::json!({"run_id":run.id.to_string(), "execution":"started", "committed_snapshot":request.committed_snapshot, "provider":if request.live {"configured"} else {"mock"}}),
         ),
     ))
+}
+
+async fn execution_source(
+    State(state): State<ApiState>,
+    RoutePath(run): RoutePath<String>,
+) -> ApiResult<Option<harness_store::execution::ExecutionSource>> {
+    let run = load_run(&state.store, run).await?;
+    let source = state
+        .store
+        .execution_source(&run.id)
+        .await
+        .map_err(store_error)?;
+    Ok((StatusCode::OK, Json(source)))
 }
 
 async fn control() -> Json<serde_json::Value> {

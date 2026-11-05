@@ -89,3 +89,14 @@ is a later feature and must not be presented as implemented here.
 - H-070: replace large default dashboard with a concise floating top-center panel,
   collapsed status pill, custom Nova monogram/logo, compact setup sheets and clear
   execution prerequisites; rebuild/install and visually verify on this Mac.
+
+## H-071 — committed-snapshot execution (reported execution blocker)
+
+Add an explicit execution source option that uses a pinned committed Git revision
+in isolated task/integration worktrees while retaining all local edited/untracked
+files untouched. Default API/CLI behavior stays clean-checkout execution; the native
+review sheet visibly selects snapshot mode and discloses that unfinished files are
+excluded. Persist/audit the selected revision and reuse it on resume. Keep project
+trust, approved plans, exact test argv, provider grants and budgets enforced. Verify
+normal denial and successful snapshot execution with dirty files retained byte-for-
+byte, and refresh/install the actual desktop runtime. No paid test generation.

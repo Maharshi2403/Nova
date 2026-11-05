@@ -283,7 +283,7 @@ struct Dashboard: View {
         }
       } message: {
         Text(
-          "\(trustProject?.repo_path ?? "")\nRepository code and tests run with your user permissions. A clean checkout and approved plan are still required."
+          "\(trustProject?.repo_path ?? "")\nRepository code and tests run with your user permissions. An approved plan is still required. Snapshot mode leaves unfinished files untouched."
         )
       }
       .confirmationDialog(
@@ -356,7 +356,7 @@ struct Dashboard: View {
           Text("Choose a run").tag("")
           ForEach(model.runs) { run in
             Text(
-              "\(model.projects.first(where:{$0.id==run.project_id})?.name ?? String(run.id.prefix(8))) · \(run.state)"
+              "\(model.projects.first(where:{$0.id==run.project_id})?.name ?? String(run.id.prefix(8))) · \(run.state == "running" ? "approved" : run.state)"
             ).tag(run.id)
           }
         }.labelsHidden()
@@ -364,7 +364,9 @@ struct Dashboard: View {
           HStack {
             Text(model.plan?.plan.idea ?? "Task run").font(.headline).lineLimit(2)
             Spacer(minLength: 0)
-            StatePill(state: run.state)
+            StatePill(
+              state: run.state == "running" && model.tasks.allSatisfy { $0.attempt == 0 }
+                ? "ready" : run.state)
           }
           if !model.tasks.isEmpty {
             ProgressView(
@@ -542,6 +544,10 @@ struct CompactRunDetails: View {
                 "\(test.exit_code == 0 ? "Passed" : "Failed / unknown") · \(argvText(test.command))"
               ).font(.caption)
             }
+          }
+          DisclosureGroup("Source revision") {
+            Text(model.sourceDescription).font(.system(.caption2, design: .monospaced))
+              .textSelection(.enabled)
           }
           DisclosureGroup("Usage") {
             Text(model.usage).font(.system(.caption2, design: .monospaced)).textSelection(.enabled)

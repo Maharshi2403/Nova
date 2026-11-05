@@ -55,3 +55,12 @@ records an explicit trust decision; enabling checks the Git root and base withou
 requiring a clean checkout. DELETE `/v1/projects/{id}` removes only an empty
 registration (409 when it has runs), never repository files. Both require bearer
 authentication and retain origin rejection.
+
+Execute accepts optional `committed_snapshot` (default false). True uses the pinned
+committed source without requiring local edits to be stashed; no dirty/untracked
+files are read into worker worktrees. GET `/v1/runs/{run}/source` returns null before
+first accepted execution, then `{base_sha,committed_snapshot}`. The first source is
+immutable for the run; subsequent launches reuse its hash. Each accepted launch
+also records an execution.launch event with its selected mode and pinned hash. Validation errors are
+redacted and reported directly to the authenticated operator instead of a generic
+checklist.

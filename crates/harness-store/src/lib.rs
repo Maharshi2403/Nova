@@ -10,6 +10,7 @@ use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, S
 pub mod approvals;
 pub mod budgets;
 pub mod dashboard;
+pub mod execution;
 pub mod git_artifacts;
 pub mod leases;
 pub mod plans;

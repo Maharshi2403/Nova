@@ -483,3 +483,22 @@ three-task approved mock workflow with verifier/integration evidence. Installed
 panel visually confirmed as a black 210×44-point Nova-logo pill, expanding to the
 small Work/Projects/Models panel. No paid generation was initiated. Collapsed
 status uses short labels to avoid clipping in the pill.
+
+## H-071 — execution from a pinned committed snapshot
+
+Fixed the repeated dirty-checkout execution blocker without changing user files.
+Execution review now visibly defaults to committed snapshot mode; CLI exposes
+--committed-snapshot and API defaults false for compatibility. Snapshot mode reads
+a committed revision into isolated task/integration worktrees and excludes local
+unfinished files. Trust, plan approval, exact verifier argv and model budgets stay
+enforced. Source SHA is pinned durably per run, reused on resume and available in
+Details; every accepted launch audits its mode/hash. Authenticated preflight errors
+are redacted and reported directly rather than replaced with a generic checklist.
+Approved-but-not-started work is labelled Ready instead of implying an agent runs.
+
+Validation: full Rust suite 229 passed. Final scoped engine/native transport tests
+5 passed, including tracked+untracked dirty files preserved byte-for-byte, worker
+view containing committed content, strict-mode rejection, trust/approval rejection,
+source pin idempotence, launch audit, verifier success and integrated commits.
+Workspace Clippy/format and native Swift compilation passed. No paid model calls.
+Final packaged-app dirty-source smoke and installation follow this source commit.

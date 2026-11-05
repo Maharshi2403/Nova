@@ -6,7 +6,7 @@ use crate::{
     },
     committer::TaskCommitter,
     diff_gate::DiffGate,
-    git::{TrustedRepo, git, register_repo},
+    git::{TrustedRepo, git, inspect_repo, register_repo},
     integration::Integrator,
     locks::ResourceLocks,
     pool::WorkerPool,
@@ -27,6 +27,12 @@ use std::{
     time::Duration,
 };
 use tokio::sync::{Semaphore, watch};
+
+#[derive(Default)]
+pub struct LaunchMode {
+    pub live: Option<crate::live::LiveConfig>,
+    pub committed_snapshot: bool,
+}
 
 #[derive(Clone)]
 pub struct Engine {
@@ -99,6 +105,29 @@ impl Engine {
         concurrency: usize,
         live: Option<crate::live::LiveConfig>,
     ) -> Result<(), String> {
+        self.launch_configured(
+            store,
+            run,
+            python,
+            commands,
+            concurrency,
+            LaunchMode {
+                live,
+                committed_snapshot: false,
+            },
+        )
+        .await
+    }
+    pub async fn launch_configured(
+        &self,
+        store: Store,
+        run: RunId,
+        python: PathBuf,
+        commands: Vec<Vec<String>>,
+        concurrency: usize,
+        mode: LaunchMode,
+    ) -> Result<(), String> {
+        let live = mode.live;
         if !python.is_absolute()
             || !python.is_file()
             || !(1..=2).contains(&concurrency)
@@ -125,9 +154,12 @@ impl Engine {
             .get_project(&record.project_id)
             .await
             .map_err(|e| e.to_string())?;
-        let repo = register_repo(&project.repo_path)
-            .await
-            .map_err(|e| e.to_string())?;
+        let mut repo = if mode.committed_snapshot {
+            inspect_repo(&project.repo_path).await
+        } else {
+            register_repo(&project.repo_path).await
+        }
+        .map_err(|e| e.to_string())?;
         for task in store.list_tasks(&run).await.map_err(|e| e.to_string())? {
             if let Some(config) = &live {
                 config.select(&task)?;
@@ -175,6 +207,37 @@ impl Engine {
             running: self.running.clone(),
             id: run.to_string(),
         };
+        let source = store
+            .pin_execution_source(
+                &run,
+                &harness_store::execution::ExecutionSource {
+                    base_sha: repo.head_sha.clone(),
+                    committed_snapshot: mode.committed_snapshot,
+                },
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+        git(
+            &repo.root,
+            &[
+                "rev-parse",
+                "--verify",
+                &format!("{}^{{commit}}", source.base_sha),
+            ],
+        )
+        .await
+        .map_err(|_| "the run's pinned source commit is no longer available")?;
+        repo.head_sha = source.base_sha;
+        store
+            .record_execution_launch(
+                &run,
+                &harness_store::execution::ExecutionSource {
+                    base_sha: repo.head_sha.clone(),
+                    committed_snapshot: mode.committed_snapshot,
+                },
+            )
+            .await
+            .map_err(|e| e.to_string())?;
         let engine = self.clone();
         tokio::spawn(async move {
             let _guard = guard;

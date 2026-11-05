@@ -70,6 +70,9 @@ enum Command {
         concurrency: usize,
         #[arg(long)]
         live: bool,
+        /// Use the pinned last commit in isolated worktrees; leave unfinished files untouched.
+        #[arg(long)]
+        committed_snapshot: bool,
         #[arg(long, requires = "live")]
         model_config: Option<PathBuf>,
     },
@@ -243,6 +246,7 @@ fn execute(cli: Cli) -> Result<String, CliError> {
             test_commands,
             concurrency,
             live,
+            committed_snapshot,
             model_config,
         } => {
             let python = harness_runtime::provider_config::ProviderStore::new(&data_dir)
@@ -275,7 +279,7 @@ fn execute(cli: Cli) -> Result<String, CliError> {
             } else {
                 config
             };
-            client.request("POST", &format!("/v1/runs/{run_id}/execute"), Some(serde_json::json!({"python":python, "allowed_test_commands":commands, "concurrency":concurrency,"live":live,"model_config":config})))?
+            client.request("POST", &format!("/v1/runs/{run_id}/execute"), Some(serde_json::json!({"python":python, "allowed_test_commands":commands, "concurrency":concurrency,"live":live,"model_config":config,"committed_snapshot":committed_snapshot})))?
         }
         Command::Init {
             repo,

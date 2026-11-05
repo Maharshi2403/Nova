@@ -45,6 +45,8 @@ enum Request {
         run_id: String,
         version: u32,
         live: bool,
+        #[serde(default)]
+        committed_snapshot: bool,
     },
 }
 fn failure(message: impl Into<String>) -> CliError {
@@ -208,6 +210,7 @@ fn handle(root: &Path, request: Request) -> Result<Value, CliError> {
             run_id,
             version,
             live,
+            committed_snapshot,
         } => {
             let _ = harness_core::domain::RunId::new(run_id.clone())
                 .map_err(|_| failure("invalid run"))?;
@@ -253,7 +256,7 @@ fn handle(root: &Path, request: Request) -> Result<Value, CliError> {
                 "POST",
                 &format!("/v1/runs/{run_id}/execute"),
                 Some(
-                    json!({"python":python,"allowed_test_commands":commands,"concurrency":2,"live":live,"model_config":config}),
+                    json!({"python":python,"allowed_test_commands":commands,"concurrency":2,"live":live,"model_config":config,"committed_snapshot":committed_snapshot}),
                 ),
             )
         }

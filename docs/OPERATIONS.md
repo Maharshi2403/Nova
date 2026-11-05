@@ -106,3 +106,13 @@ saved PIDs are not killed because they may have been reused.
 
 Hosted Windows/macOS CI and an authorized budgeted live smoke are required before
 claiming a fully validated release. Local tests alone do not establish those gates.
+
+## Working with unfinished local files
+
+Use `--committed-snapshot` with CLI execute, or leave Use committed snapshot selected
+in desktop execution review. Nova runs the pinned last committed version in its
+isolated worktrees. Tracked edits and untracked files stay untouched and are not
+included as task input. The first accepted execution records its commit in an
+append-only execution.source event; resumes reuse that revision. Create a new run
+to use a newer commit. Trust, plan approval, exact command approvals, budgets and
+verification remain enforced. Normal API/CLI mode still requires a clean checkout.

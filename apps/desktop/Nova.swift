@@ -177,6 +177,7 @@ struct Bridge {
   @Published var approvals: [ApprovalItem] = []
   @Published var usage = "No provider calls recorded."
   @Published var evidence: Evidence?
+  @Published var sourceDescription = "No execution source recorded."
   @Published var section = "Overview"
   @Published var error: String?
   @Published var notice: String?
@@ -226,6 +227,7 @@ struct Bridge {
       [EventItem].self, await Bridge.api("GET", "/v1/events?run_id=\(run.id)&after=0&limit=1000"))
     let newApprovals = try Bridge.decode(
       [ApprovalItem].self, await Bridge.api("GET", "/v1/approvals?run_id=\(run.id)"))
+    let source = try await Bridge.api("GET", "/v1/runs/\(run.id)/source")
     let newUsage = try await Bridge.api("GET", "/v1/usage?run_id=\(run.id)")
     var newPlan: PlanRecord?
     if let version = run.plan_version {
@@ -236,6 +238,7 @@ struct Bridge {
     tasks = newTasks
     events = newEvents
     approvals = newApprovals
+    sourceDescription = Bridge.pretty(source)
     usage = Bridge.pretty(newUsage)
     plan = newPlan
   }
@@ -614,6 +617,7 @@ struct ExecuteReview: View {
   @Environment(\.dismiss) var dismiss
   @State var live = true
   @State var acknowledged = false
+  @State var committedSnapshot = true
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
       SheetHeader(
@@ -621,6 +625,12 @@ struct ExecuteReview: View {
         subtitle:
           "Nova will run the approved tasks, verify changes, and integrate successful task commits locally."
       )
+      Toggle("Use committed snapshot", isOn: $committedSnapshot)
+      Text(
+        committedSnapshot
+          ? "Uses a pinned commit (latest on first launch) in isolated worktrees. Uncommitted files are excluded and left untouched."
+          : "Requires a clean checkout. Commit or stash changes first."
+      ).font(.caption).foregroundStyle(.secondary)
       Toggle("Use configured live models (API billing applies)", isOn: $live)
       if !live {
         Text(
@@ -671,6 +681,7 @@ struct ExecuteReview: View {
           guard let run = model.selectedRun, let plan = model.plan else { return }
           let request: [String: Any] = [
             "op": "execute", "run_id": run.id, "version": plan.version, "live": live,
+            "committed_snapshot": committedSnapshot,
           ]
           model.perform {
             _ = try await Bridge.call(request)

@@ -57,7 +57,9 @@ or deleted automatically. The `harness` binary remains a compatibility alias.
 Register with `nova init /absolute/repo --name Demo --trust-local` only when you
 authorize unsandboxed execution of that repository's code. Omitting the flag creates
 an untrusted project that cannot execute. Projects can be added with uncommitted
-changes; commit or stash those changes before execution. Worktrees are not OS sandboxes.
+changes; desktop execution uses a committed snapshot in separate worktrees and
+leaves your unfinished files untouched. CLI users can select `--committed-snapshot`;
+normal execution still requires a clean checkout. Worktrees are not OS sandboxes.
 
 See [operator workflows](docs/OPERATIONS.md), [configuration](docs/CONFIGURATION.md),
 [trust boundary](docs/TRUST_BOUNDARY.md), and [control API](docs/CONTROL_API.md).
