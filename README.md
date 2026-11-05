@@ -32,12 +32,25 @@ uv run --locked --offline --project intelligence python scripts/offline_demo.py 
 
 ## Operate
 
-Start `target/debug/harnessd --data-dir /absolute/private/harness-data` in a terminal.
-On Windows append `.exe`. Pass the same directory to `harness --daemon-dir`.
-Default state is `AIHarness` beneath `LOCALAPPDATA`, falling back to `HOME`.
-One daemon owns a state directory.
+Install the single Nova executable, then start it:
 
-Register with `harness init /absolute/repo --name Demo --trust-local` only when you
+```sh
+cargo install --path apps/cli --bin nova --locked
+nova
+```
+
+`nova` starts the service in the background or connects if it is already running.
+`nova start` does the same thing. `nova stop` safely stops an idle service; active
+runs must finish or be paused/cancelled first. `nova --help` lists the commands.
+No agents or paid provider calls start automatically. No separate daemon binary
+is needed to use the installed Nova command.
+
+Default state on macOS is `~/Library/Application Support/Nova`; elsewhere it is
+`Nova` beneath LOCALAPPDATA or HOME. Use `nova --daemon-dir PATH` for another
+directory, including an existing legacy AIHarness directory. Nothing is migrated
+or deleted automatically. The `harness` binary remains a compatibility alias.
+
+Register with `nova init /absolute/repo --name Demo --trust-local` only when you
 authorize unsandboxed execution of that repository's code. Omitting the flag creates
 an untrusted project that cannot execute. Worktrees are not OS sandboxes.
 

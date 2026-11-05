@@ -46,6 +46,8 @@ pub struct Daemon {
     token: String,
     pub token_path: PathBuf,
     pub discovery_path: PathBuf,
+    shutdown: tokio::sync::watch::Sender<bool>,
+    server: tokio::task::JoinHandle<()>,
 }
 
 #[derive(Serialize)]
@@ -101,26 +103,53 @@ pub async fn start(data_dir: impl AsRef<Path>, bind: SocketAddr) -> Result<Daemo
     })
     .expect("discovery is serializable");
     std::fs::write(&discovery_path, discovery).map_err(DaemonError::DiscoveryFile)?;
-    let app = api_router_with_runtime(
+    let (shutdown, mut stopping) = tokio::sync::watch::channel(false);
+    let app = api_router_with_lifecycle(
         token.clone(),
         store,
         Some(harness_runtime::engine::Engine::new(
             data_dir.join("execution"),
         )),
+        Some(shutdown.clone()),
     );
-    tokio::spawn(async move {
+    let server = tokio::spawn(async move {
         let _daemon_lock = daemon_lock;
-        let _ = axum::serve(listener, app).await;
+        let _ = axum::serve(listener, app)
+            .with_graceful_shutdown(async move {
+                if !*stopping.borrow() {
+                    let _ = stopping.changed().await;
+                }
+            })
+            .await;
     });
     Ok(Daemon {
         address,
         token,
         token_path,
         discovery_path,
+        shutdown,
+        server,
     })
 }
 
 impl Daemon {
+    pub async fn run_until_shutdown(self) {
+        let mut server = self.server;
+        let interrupt = async {
+            if tokio::signal::ctrl_c().await.is_err() {
+                // Detached Windows services may not have a console. API shutdown
+                // still works; lack of a signal handler must not stop the service.
+                std::future::pending::<()>().await;
+            }
+        };
+        tokio::select! {
+            _ = interrupt => {
+                let _ = self.shutdown.send(true);
+                let _ = server.await;
+            },
+            _ = &mut server => {},
+        }
+    }
     pub fn authorization_header(&self) -> String {
         ["Bearer", &self.token].join(" ")
     }
@@ -131,6 +160,7 @@ struct ApiState {
     store: Store,
     event_waiters: Arc<tokio::sync::Semaphore>,
     engine: Option<harness_runtime::engine::Engine>,
+    shutdown: Option<tokio::sync::watch::Sender<bool>>,
 }
 
 pub fn router(token: String) -> Router {
@@ -151,10 +181,19 @@ pub fn api_router_with_runtime(
     store: Store,
     engine: Option<harness_runtime::engine::Engine>,
 ) -> Router {
+    api_router_with_lifecycle(token, store, engine, None)
+}
+fn api_router_with_lifecycle(
+    token: String,
+    store: Store,
+    engine: Option<harness_runtime::engine::Engine>,
+    shutdown: Option<tokio::sync::watch::Sender<bool>>,
+) -> Router {
     Router::new().route("/healthz", get(healthz)).nest(
         "/v1",
         Router::new()
             .route("/control", get(control))
+            .route("/shutdown", post(shutdown_service))
             .route("/projects", post(create_project))
             .route("/plans", post(propose_plan))
             .route("/plans/{run_id}/{version}", get(get_plan))
@@ -178,9 +217,42 @@ pub fn api_router_with_runtime(
                 store,
                 event_waiters: Arc::new(tokio::sync::Semaphore::new(64)),
                 engine,
+                shutdown,
             })
             .layer(axum::middleware::from_fn_with_state(token, require_bearer)),
     )
+}
+
+async fn shutdown_service(State(state): State<ApiState>) -> ApiResult<serde_json::Value> {
+    let shutdown = state.shutdown.ok_or_else(|| {
+        api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "shutdown_unavailable",
+            "service lifecycle is not configured",
+        )
+    })?;
+    if state
+        .engine
+        .as_ref()
+        .is_some_and(|engine| !engine.prepare_shutdown())
+    {
+        return Err(api_error(
+            StatusCode::CONFLICT,
+            "work_in_progress",
+            "Nova has active runs; pause or cancel them and wait before stopping",
+        ));
+    }
+    shutdown.send(true).map_err(|_| {
+        api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "shutdown_failed",
+            "service is already stopping",
+        )
+    })?;
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({"status":"stopped"})),
+    ))
 }
 
 async fn healthz() -> Json<serde_json::Value> {
@@ -929,10 +1001,14 @@ fn write_token(path: &Path, token: &str) -> Result<(), DaemonError> {
 }
 
 pub fn default_data_dir() -> Result<PathBuf, DaemonError> {
+    #[cfg(target_os = "macos")]
+    if let Some(home) = std::env::var_os("HOME") {
+        return Ok(PathBuf::from(home).join("Library/Application Support/Nova"));
+    }
     let base = std::env::var_os("LOCALAPPDATA")
         .or_else(|| std::env::var_os("HOME"))
         .ok_or_else(|| DaemonError::DataDirectory(std::io::Error::other("home unavailable")))?;
-    Ok(PathBuf::from(base).join("AIHarness"))
+    Ok(PathBuf::from(base).join("Nova"))
 }
 
 pub fn loopback_ephemeral() -> SocketAddr {

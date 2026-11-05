@@ -1,7 +1,7 @@
 # Execution trust boundary
 
 Registration defaults to untrusted and does not run Git or repository programs.
-`harness init <repo> --name <name> --trust-local` explicitly authorizes trusted
+`nova init <repo> --name <name> --trust-local` explicitly authorizes trusted
 local execution; Git registration then requires a clean checkout and an initial
 commit. Existing projects without a trust record remain untrusted after migration.
 Re-register a trusted project to make the decision explicit.

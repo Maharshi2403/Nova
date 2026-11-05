@@ -40,3 +40,10 @@ Before documenting operator workflows, fix repeated pause/resume audit keys,
 concurrent scheduler compare-and-set races, and per-run worktree-registry ownership.
 These were found during H-059 workflow review; verify repeat control cycles and
 keep each run's registry separate. No new product scope or remote release.
+
+## H-061 — Nova command and local lifecycle
+
+User-requested follow-up: canonical `nova` binary, bare-command/start launcher,
+authenticated attach, safe idle shutdown, user-local PATH installation, and lifecycle
+regression tests. Keep `harness` compatibility and existing state paths accessible.
+Do not start coding agents, approve plans, or enable a paid provider on startup.

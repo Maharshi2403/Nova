@@ -14,6 +14,16 @@ use tower::ServiceExt;
 const TOKEN: &str = "test-token";
 
 #[tokio::test]
+async fn shutdown_requires_authentication() {
+    let (_data, store, _repo) = fixture().await;
+    let response = api_router(TOKEN.into(), store)
+        .oneshot(Request::post("/v1/shutdown").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
 async fn subscriber_resumes_after_disconnect_without_duplicates() {
     let (_data, store, _repo) = fixture().await;
     let p = Project::new(ProjectId::new("p").unwrap(), "fixture", "/repo").unwrap();

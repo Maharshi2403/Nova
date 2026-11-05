@@ -38,7 +38,7 @@ def main() -> None:
     environment = dict(os.environ, SOURCE_DATE_EPOCH=epoch)
     suffix = ".exe" if os.name == "nt" else ""
     files: dict[str, bytes] = {}
-    for name in ("harness", "harnessd"):
+    for name in ("nova", "harness", "harnessd"):
         path = binaries / (name + suffix)
         assert path.is_file(), f"build the native release binary first: {path}"
         files["bin/" + path.name] = path.read_bytes()

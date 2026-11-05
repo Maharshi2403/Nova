@@ -108,6 +108,8 @@ jobs:
         with:
           name: harness-debug-${{ runner.os }}-${{ runner.arch }}
           path: |
+            target/debug/nova
+            target/debug/nova.exe
             target/debug/harness
             target/debug/harnessd
             target/debug/harness.exe

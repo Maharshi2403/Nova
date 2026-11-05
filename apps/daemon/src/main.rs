@@ -22,7 +22,7 @@ async fn main() {
     match start(data_dir, loopback_ephemeral()).await {
         Ok(daemon) => {
             eprintln!("harnessd listening on {}", daemon.address);
-            let _ = tokio::signal::ctrl_c().await;
+            daemon.run_until_shutdown().await;
         }
         Err(error) => {
             eprintln!("harnessd: {error}");

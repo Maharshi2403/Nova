@@ -1,6 +1,6 @@
 # Implementation progress
 
-Latest locally verified implementation: H-060 — native candidate packaging.
+Latest locally verified implementation: H-061 — Nova single-command startup.
 Prior implementation: H-001..H-044 appear in Git history; their original platform
 evidence has not been independently audited. Current stage: G5.
 
@@ -300,5 +300,37 @@ operator/configuration docs for these explicit product limits.
 
 The three original handoff documents remain unchanged and untracked. Only
 ticket-owned implementation, tests, documentation and packaging files were committed.
+
+## H-061 — user-requested Nova CLI usability
+
+Canonical executable is now `nova`; bare `nova` and `nova start` launch the service
+in the background or authenticate/connect to the existing instance. The single
+binary embeds the existing Rust daemon; no separate daemon executable is required
+for installation. `nova stop` is authenticated and refuses to interrupt active
+runs. An atomic engine shutdown gate prevents a concurrent run launch. Existing
+commands remain, with `harness` as a compatibility alias. Help does not start a
+service. Startup never approves a plan, dispatches agents or calls a provider.
+
+Default macOS state is ~/Library/Application Support/Nova (the existing local state
+directory). Other platforms use Nova under LOCALAPPDATA/HOME. Existing legacy state
+is retained and accessible with --daemon-dir; no automatic migration/deletion.
+
+Verification actually run:
+
+- Full offline Rust workspace: PASS, 212 tests (including new startup/authentication
+  regressions and active-run shutdown protection).
+- Final follow-up CLI suite: PASS, six unit/integration tests across both command
+  names and real detached start/attach/stop/restart on disposable state directories.
+- Workspace all-target Clippy with -D warnings, Rust formatting, script lint/format,
+  documentation links and git diff --check: PASS.
+- Native release build and extracted package smoke: PASS, including standalone
+  Nova start/attach/stop before Python installation and the existing real CLI demo.
+- Installed a standalone executable at ~/.local/bin/nova; confirmed it resolves
+  from a normal login shell. Verified nova --version, nova stop, bare nova and
+  repeated nova start. Nova is left running with no agents automatically started.
+
+Original handoff files and unrelated .DS_Store are untouched. No shell-profile edits,
+push, tag, paid calls or desktop UI were introduced. Windows detached-service
+behavior remains subject to the configured hosted CI checks.
 The original three untracked handoff documents are intentionally excluded from
 the feature commit and left unchanged.

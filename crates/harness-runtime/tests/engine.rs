@@ -51,10 +51,15 @@ async fn real_worker_broker_verifier_commit_and_integration() {
     }];
     store.propose_plan(&run.id, &plan).await.unwrap();
     store.approve_plan(&run.id, 1).await.unwrap();
-    Engine::new(dir.path().join("execution"))
+    let engine = Engine::new(dir.path().join("execution"));
+    engine
         .launch(store.clone(), run.id.clone(), python, vec![command], 2)
         .await
         .unwrap();
+    assert!(
+        !engine.prepare_shutdown(),
+        "shutdown must not interrupt an active run"
+    );
     tokio::time::timeout(Duration::from_secs(20), async {
         loop {
             let tasks = store.list_tasks(&run.id).await.unwrap();

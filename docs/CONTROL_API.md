@@ -14,6 +14,7 @@ capacity. Execution 202 means accepted, not verified completion.
 |---|---|
 | GET `/healthz` | Minimal status |
 | GET `/v1/control` | Authenticated status |
+| POST `/v1/shutdown` | Authenticated idle shutdown; 409 while execution is active |
 | POST `/v1/projects` | `{name,repo_path,trusted_local:false}` (trust optional) |
 | POST `/v1/runs` | `{project_id}` creates planning run |
 | GET `/v1/runs/{run}` | Project/state/revision |

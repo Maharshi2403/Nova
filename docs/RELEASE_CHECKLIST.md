@@ -62,5 +62,5 @@ with `uv venv runtime`, install `requirements.lock.txt` with `uv pip install
 with `uv pip install --no-deps --python PYTHON wheels/harness_ai-0.1.0-py3-none-any.whl`.
 Replace PYTHON with `runtime/bin/python` on Unix or `runtime/Scripts/python.exe` on
 Windows. Add `--offline` when caches are prepared. Run `bin/harnessd` with a dedicated
-private `--data-dir`, and pass this venv's absolute Python path to `harness execute`.
+private `--data-dir`, and pass this venv's absolute Python path to `nova execute`.
 The compiled binaries and Python wheel both report version 0.1.0.

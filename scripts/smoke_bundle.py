@@ -46,11 +46,18 @@ def main() -> None:
             assert set(bundle.namelist()) == expected_files
             bundle.extractall(root)
         suffix = ".exe" if os.name == "nt" else ""
-        for name in ("harness", "harnessd"):
+        for name in ("nova", "harness", "harnessd"):
             binary = root / "bin" / (name + suffix)
             if os.name != "nt":
                 binary.chmod(0o755)
             subprocess.run([str(binary), "--version"], check=True)
+        nova = root / "bin" / ("nova" + suffix)
+        state = root / "nova-state"
+        try:
+            subprocess.run([str(nova), "--daemon-dir", str(state)], check=True)
+            subprocess.run([str(nova), "--daemon-dir", str(state), "start"], check=True)
+        finally:
+            subprocess.run([str(nova), "--daemon-dir", str(state), "stop"], check=True)
         venv = root / "runtime"
         subprocess.run(
             ["uv", "venv", "--offline", "--python", sys.executable, str(venv)], check=True

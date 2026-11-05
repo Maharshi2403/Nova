@@ -2,8 +2,10 @@
 
 | Surface | Option | Effective behavior |
 |---|---|---|
-| daemon | `--data-dir PATH` | Private token/discovery/SQLite/worktree directory |
+| advanced daemon | `--data-dir PATH` | Private token/discovery/SQLite/worktree directory |
 | CLI | `--daemon-dir PATH` | Same directory for discovery/authentication |
+| CLI | bare `nova` / `nova start` | Start or attach to background service |
+| CLI | `nova stop` | Authenticated idle shutdown; refuses active runs |
 | CLI | `--json` | JSON output; otherwise pretty JSON |
 | init | `--trust-local` | Explicit unsandboxed trusted-local authorization |
 | execute | `--python PATH` | Absolute installed intelligence venv interpreter |

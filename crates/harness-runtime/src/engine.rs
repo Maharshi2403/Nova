@@ -34,6 +34,7 @@ pub struct Engine {
     locks: ResourceLocks,
     running: Arc<Mutex<HashSet<String>>>,
     capacity: Arc<Semaphore>,
+    stopping: Arc<std::sync::atomic::AtomicBool>,
 }
 #[derive(Clone)]
 struct ExecutionOptions {
@@ -62,7 +63,18 @@ impl Engine {
             locks: ResourceLocks::default(),
             running: Default::default(),
             capacity: Arc::new(Semaphore::new(2)),
+            stopping: Default::default(),
         }
+    }
+    /// Reserve an idle engine for shutdown without racing a new execution launch.
+    pub fn prepare_shutdown(&self) -> bool {
+        let active = self.running.lock().unwrap_or_else(|e| e.into_inner());
+        if !active.is_empty() {
+            return false;
+        }
+        self.stopping
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        true
     }
     pub async fn launch(
         &self,
@@ -149,6 +161,9 @@ impl Engine {
         };
         {
             let mut active = self.running.lock().unwrap_or_else(|e| e.into_inner());
+            if self.stopping.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err("Nova is shutting down".into());
+            }
             if !active.insert(run.to_string()) {
                 return Err("run already executing".into());
             }

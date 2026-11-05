@@ -1,16 +1,26 @@
 [package]
 name = "harness-cli"
-description = "AI Harness command-line client"
+description = "Nova coding-agent harness"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
 publish.workspace = true
+default-run = "nova"
+
+[[bin]]
+name = "nova"
+path = "src/main.rs"
 
 [[bin]]
 name = "harness"
-path = "src/main.rs"
+path = "src/legacy.rs"
 
 [dependencies]
 clap.workspace = true
 serde_json = "1"
 thiserror = "2"
+harness-daemon = { path = "../daemon" }
+tokio = { version = "1", features = ["rt-multi-thread", "signal"] }
+
+[dev-dependencies]
+tempfile = "3"

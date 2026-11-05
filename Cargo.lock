@@ -679,8 +679,11 @@ name = "harness-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "harness-daemon",
  "serde_json",
+ "tempfile",
  "thiserror",
+ "tokio",
 ]
 
 [[package]]

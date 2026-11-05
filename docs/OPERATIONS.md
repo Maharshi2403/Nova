@@ -6,20 +6,20 @@ Run the self-contained README demo first. The following command forms use IDs
 returned by earlier commands; replace PROJECT_ID, RUN_ID and TASK_ID with those
 values. Put `--daemon-dir PATH` before the command when needed; Windows uses `.exe`.
 
-1. `harness --json init /absolute/repo --name Demo --trust-local` returns a project ID.
-2. `harness --json run PROJECT_ID` creates a planning run and returns its ID.
+1. `nova --json init /absolute/repo --name Demo --trust-local` returns a project ID.
+2. `nova --json run PROJECT_ID` creates a planning run and returns its ID.
 3. Create a plan matching `schemas/plan.schema.json`, with that project's ID and
    executable acceptance test argv. Python's `harness_ai.planner.propose_plan` can
    generate typed proposals. The current CLI submits JSON files; it does not accept
    an idea string directly.
-4. `harness plan RUN_ID plan.json` persists an immutable proposed version.
-5. Review scope, risk and tests before `harness approve RUN_ID 1`. Plan approval
+4. `nova plan RUN_ID plan.json` persists an immutable proposed version.
+5. Review scope, risk and tests before `nova approve RUN_ID 1`. Plan approval
    makes tasks eligible; it does not authorize arbitrary commands.
 6. Write `approved-tests.json`, an array of exact argv arrays, for example
    `[["/absolute/venv/bin/python","-m","pytest","-q"]]`. Windows uses the absolute
    `Scripts/python.exe` path. Approving a test runner/interpreter authorizes code
    execution with your privileges in trusted-local mode.
-7. `harness execute RUN_ID --python ABSOLUTE_INTELLIGENCE_PYTHON --test-commands approved-tests.json`
+7. `nova execute RUN_ID --python ABSOLUTE_INTELLIGENCE_PYTHON --test-commands approved-tests.json`
    runs the synthetic mock coder. Its candidate paths must be exact fixture files;
    it cannot solve arbitrary coding tasks. See live mode for actual coding.
 
@@ -30,20 +30,20 @@ yourself when satisfied. Nothing is pushed automatically.
 
 ## Inspect and control
 
-- `harness status RUN_ID` shows run state; `harness task RUN_ID` lists task specs,
+- `nova status RUN_ID` shows run state; `nova task RUN_ID` lists task specs,
   states, revisions and attempts. Put `--json` before the command for JSON output.
-- `harness priority RUN_ID TASK_ID REVISION --manual-priority 90` changes queued
+- `nova priority RUN_ID TASK_ID REVISION --manual-priority 90` changes queued
   order. Omit the priority to clear it. A stale revision returns 409.
-- `harness pause RUN_ID` prevents new leases and lets assigned work finish.
-  `harness resume RUN_ID` restores eligibility. If the execution loop already drained
+- `nova pause RUN_ID` prevents new leases and lets assigned work finish.
+  `nova resume RUN_ID` restores eligibility. If the execution loop already drained
   and exited while paused, repeat `execute` with the same reviewed policy.
-- `harness cancel RUN_ID` cancels eligible tasks, signals workers and prevents later
+- `nova cancel RUN_ID` cancels eligible tasks, signals workers and prevents later
   commit/integration. Verification already running may finish; files are retained.
   Tasks in states without a direct cancelled transition become blocked.
-- `harness logs RUN_ID --after 0 --limit 100` reads audit events. Pass the last
+- `nova logs RUN_ID --after 0 --limit 100` reads audit events. Pass the last
   sequence as the next cursor. The API also offers bounded long-poll.
-- `harness approvals RUN_ID` lists scoped requests. Review argv, cwd and task attempt.
-  `harness decision APPROVAL_ID REVISION --approve` approves once; omit `--approve`
+- `nova approvals RUN_ID` lists scoped requests. Review argv, cwd and task attempt.
+  `nova decision APPROVAL_ID REVISION --approve` approves once; omit `--approve`
   to deny. Workers cannot decide requests.
 
 ## Live coding
@@ -60,7 +60,7 @@ each task's `cost_cap_usd` is USD. Include authorization/completion broker calls
 the task's tool-call limit.
 
 ```text
-harness execute RUN_ID --python ABSOLUTE_PYTHON --test-commands approved-tests.json --live --model-config reviewed-models.json
+nova execute RUN_ID --python ABSOLUTE_PYTHON --test-commands approved-tests.json --live --model-config reviewed-models.json
 ```
 
 Rust chooses the configured complexity/risk route and reserves each task's full cap

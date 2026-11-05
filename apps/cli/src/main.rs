@@ -3,23 +3,30 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
+mod startup;
 
-/// AI Harness: local-first coding-agent runtime.
+/// Nova — your local coding-agent harness. Run `nova` to get started.
 #[derive(Parser, Debug)]
-#[command(name = "harness", version, about)]
+#[command(name = "nova", version, about)]
 struct Cli {
     /// Print the API response as stable JSON.
     #[arg(long)]
     json: bool,
-    /// Daemon state directory. Defaults to the per-user AIHarness data directory.
+    /// Nova's state directory (defaults to the per-user Nova directory).
     #[arg(long, global = true)]
     daemon_dir: Option<PathBuf>,
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(Subcommand, Debug)]
 enum Command {
+    /// Start Nova in the background, or connect to the running service.
+    Start,
+    /// Stop Nova safely when no runs are active.
+    Stop,
+    #[command(name = "__serve", hide = true)]
+    Serve,
     Approvals {
         run_id: String,
     },
@@ -96,6 +103,8 @@ enum Command {
 
 #[derive(Debug, thiserror::Error)]
 enum CliError {
+    #[error("could not start Nova: {0}")]
+    Startup(String),
     #[error("could not read daemon discovery: {0}")]
     Discovery(#[source] std::io::Error),
     #[error("daemon discovery metadata is invalid: {0}")]
@@ -119,19 +128,52 @@ struct Client {
 
 fn main() {
     let cli = Cli::parse();
+    if matches!(cli.command, Some(Command::Serve)) {
+        let result = cli
+            .daemon_dir
+            .map(Ok)
+            .unwrap_or_else(default_data_dir)
+            .and_then(|directory| {
+                let runtime =
+                    tokio::runtime::Runtime::new().map_err(|e| CliError::Startup(e.to_string()))?;
+                runtime.block_on(async {
+                    let daemon =
+                        harness_daemon::start(directory, harness_daemon::loopback_ephemeral())
+                            .await
+                            .map_err(|e| CliError::Startup(e.to_string()))?;
+                    daemon.run_until_shutdown().await;
+                    Ok(())
+                })
+            });
+        if let Err(error) = result {
+            eprintln!("nova: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     match execute(cli) {
         Ok(body) => println!("{body}"),
         Err(error) => {
-            eprintln!("harness: {error}");
+            eprintln!("nova: {error}");
             std::process::exit(1);
         }
     }
 }
 
 fn execute(cli: Cli) -> Result<String, CliError> {
-    let data_dir = cli.daemon_dir.unwrap_or(default_data_dir()?);
+    let data_dir = cli.daemon_dir.map(Ok).unwrap_or_else(default_data_dir)?;
+    let command = cli.command.unwrap_or(Command::Start);
+    if matches!(command, Command::Start) {
+        return startup::start(&data_dir, cli.json);
+    }
+    if matches!(command, Command::Stop) {
+        return startup::stop(&data_dir, cli.json);
+    }
     let client = Client::from_data_dir(&data_dir)?;
-    let response = match cli.command {
+    let response = match command {
+        Command::Start | Command::Stop | Command::Serve => {
+            unreachable!("lifecycle handled before API commands")
+        }
         Command::Approvals { run_id } => {
             client.request("GET", &format!("/v1/approvals?run_id={run_id}"), None)?
         }
@@ -270,8 +312,25 @@ impl Client {
         path: &str,
         body: Option<serde_json::Value>,
     ) -> Result<String, CliError> {
+        self.request_with_timeout(method, path, body, std::time::Duration::from_secs(30))
+    }
+    fn request_with_timeout(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<serde_json::Value>,
+        timeout: std::time::Duration,
+    ) -> Result<String, CliError> {
         let body = body.map(|body| body.to_string()).unwrap_or_default();
-        let mut stream = TcpStream::connect(self.address).map_err(CliError::Connect)?;
+        let mut stream =
+            TcpStream::connect_timeout(&self.address, std::time::Duration::from_secs(1))
+                .map_err(CliError::Connect)?;
+        stream
+            .set_read_timeout(Some(timeout))
+            .map_err(CliError::Connect)?;
+        stream
+            .set_write_timeout(Some(timeout))
+            .map_err(CliError::Connect)?;
         let request = format!(
             "{method} {path} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
             self.token,
@@ -300,10 +359,7 @@ impl Client {
 }
 
 fn default_data_dir() -> Result<PathBuf, CliError> {
-    let base = std::env::var_os("LOCALAPPDATA")
-        .or_else(|| std::env::var_os("HOME"))
-        .ok_or_else(|| CliError::Protocol("home directory unavailable".into()))?;
-    Ok(PathBuf::from(base).join("AIHarness"))
+    harness_daemon::default_data_dir().map_err(|e| CliError::Startup(e.to_string()))
 }
 
 #[cfg(test)]
