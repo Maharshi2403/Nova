@@ -66,3 +66,18 @@ protocols need adapters; compatible endpoints can use the generic adapter.
 Release bundle smoke found that canonicalizing a Python venv's executable symlink
 selected the system interpreter and lost its installed package. Keep the checked
 absolute venv entry path, test symlink behavior, rebuild the bundle and rerun smoke.
+
+## Native desktop follow-up (user authorized)
+
+- H-066: bounded authenticated dashboard project/run inventory and task verification
+  evidence. Keep SQL in the store and preserve browser-origin rejection.
+- H-067: native macOS dashboard with CLI stdin bridge, provider/key setup, model
+  routes, guided project/task-plan creation, explicit approve/execute controls,
+  live run/task/event/usage/evidence views. No model generation during development.
+- H-068: desktop app packaging, `nova ui` launch, desktop installation and workflow
+  smoke. Closing the window leaves the independent daemon running. Other desktop
+  platforms remain explicit follow-up work; do not claim a cross-platform GUI.
+
+Native transport keeps the daemon credential out of the UI, browser and URLs.
+The task form constructs an operator-authored plan; automatic goal decomposition
+is a later feature and must not be presented as implemented here.

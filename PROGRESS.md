@@ -389,3 +389,13 @@ symlink selected the system interpreter, which could not import harness_ai. Nova
 now validates an absolute existing interpreter while preserving the venv entry path.
 A Unix symlink regression test and Clippy pass. The full package smoke is rerun
 before considering the installation complete.
+
+## H-066 — native dashboard read model
+
+Added transactional bounded project/run inventory with counts and trust status,
+and authenticated task verification/commit evidence. SQL remains in the store;
+browser-origin rejection is preserved. Multi-provider execution now reports
+"configured" instead of incorrectly labelling all live runs OpenAI.
+Validation: daemon API 14 tests passed; workspace Clippy passed. New tests cover
+paging, totals, auth, hostile origins, invalid limits and missing evidence.
+Next H-067: native macOS dashboard and credential-free CLI bridge.

@@ -40,3 +40,9 @@ A worker's completed message is a claim. Displays must use durable state and
 verifier/commit/integration evidence. Revisions are compare-and-set: reload on 409.
 Tauri UI, OS sandbox backends, remote hosting and automatic deployment are deferred.
 Any future client must preserve Rust state authority and this trust boundary.
+
+Native dashboard additions: GET `/v1/dashboard?offset=0&limit=100` returns
+newest-first projects/runs with total counts (limit 1..200); projects include their
+persisted trusted-local decision. GET `/v1/tasks/{run}/{task}/evidence` returns
+recorded verifier command/exit/duration and task/integration commit identities.
+Both require the same bearer authentication and reject browser-origin requests.

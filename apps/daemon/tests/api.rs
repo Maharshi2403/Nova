@@ -489,3 +489,74 @@ async fn events_cursor_replay() {
             .all(|event| event["sequence"].as_i64().unwrap() > sequence)
     );
 }
+
+#[tokio::test]
+async fn dashboard_inventory_is_authenticated_bounded_and_durable() {
+    let (_data, store, _repo) = fixture().await;
+    for n in 0..3 {
+        let p = Project::new(
+            ProjectId::new(format!("p{n}")).unwrap(),
+            format!("Project {n}"),
+            "/repo",
+        )
+        .unwrap();
+        store.create_project(&p).await.unwrap();
+        store
+            .create_run(&Run::new(RunId::new(format!("r{n}")).unwrap(), p.id))
+            .await
+            .unwrap();
+    }
+    let app = api_router(TOKEN.into(), store);
+    let response = app
+        .clone()
+        .oneshot(Request::get("/v1/dashboard").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    let response = app
+        .clone()
+        .oneshot(
+            auth(Request::get("/v1/dashboard?offset=1&limit=1"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let data: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 10000).await.unwrap()).unwrap();
+    assert_eq!(data["project_count"], 3);
+    assert_eq!(data["run_count"], 3);
+    assert_eq!(data["projects"][0]["id"], "p1");
+    assert_eq!(data["runs"].as_array().unwrap().len(), 1);
+    assert_eq!(data["projects"][0]["trusted_local"], false);
+    let response = app
+        .clone()
+        .oneshot(
+            auth(Request::get("/v1/dashboard?limit=201"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let response = app
+        .clone()
+        .oneshot(
+            auth(Request::get("/v1/dashboard"))
+                .header("origin", "http://localhost")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let response = app
+        .oneshot(
+            auth(Request::get("/v1/tasks/r1/missing/evidence"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}

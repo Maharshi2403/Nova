@@ -193,6 +193,8 @@ fn api_router_with_lifecycle(
         "/v1",
         Router::new()
             .route("/control", get(control))
+            .route("/dashboard", get(dashboard))
+            .route("/tasks/{run_id}/{task_id}/evidence", get(task_evidence))
             .route("/shutdown", post(shutdown_service))
             .route("/projects", post(create_project))
             .route("/plans", post(propose_plan))
@@ -221,6 +223,75 @@ fn api_router_with_lifecycle(
             })
             .layer(axum::middleware::from_fn_with_state(token, require_bearer)),
     )
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DashboardQuery {
+    offset: Option<u32>,
+    limit: Option<u32>,
+}
+async fn dashboard(
+    State(state): State<ApiState>,
+    Query(query): Query<DashboardQuery>,
+) -> ApiResult<harness_store::dashboard::Dashboard> {
+    let limit = query.limit.unwrap_or(100);
+    if limit == 0 || limit > 200 {
+        return Err(api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_page",
+            "limit must be 1..200",
+        ));
+    }
+    let data = state
+        .store
+        .dashboard(query.offset.unwrap_or(0), limit)
+        .await
+        .map_err(store_error)?;
+    Ok((StatusCode::OK, Json(data)))
+}
+async fn task_evidence(
+    State(state): State<ApiState>,
+    RoutePath((run, task)): RoutePath<(String, String)>,
+) -> ApiResult<serde_json::Value> {
+    use harness_store::{
+        git_artifacts::GitArtifactRepository, verification::VerificationRepository,
+    };
+    let run = RunId::new(run).map_err(|e| {
+        api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_run",
+            e.to_string(),
+        )
+    })?;
+    let task = harness_core::domain::TaskId::new(task).map_err(|e| {
+        api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_task",
+            e.to_string(),
+        )
+    })?;
+    state
+        .store
+        .get_task(&run, &task)
+        .await
+        .map_err(store_error)?;
+    let commit = state
+        .store
+        .get_task_commit(&run, &task)
+        .await
+        .map_err(store_error)?;
+    let tests = state
+        .store
+        .list_test_results(&run, &task)
+        .await
+        .map_err(store_error)?;
+    Ok((
+        StatusCode::OK,
+        Json(
+            serde_json::json!({"commit":commit.map(|c|serde_json::json!({"task_commit_sha":c.task_commit_sha,"integration_commit_sha":c.integration_commit_sha,"diff_paths":c.diff_paths})),"tests":tests.into_iter().map(|t|serde_json::json!({"id":t.id,"command":t.command,"exit_code":t.exit_code,"duration_ms":t.duration_ms})).collect::<Vec<_>>()}),
+        ),
+    ))
 }
 
 async fn shutdown_service(State(state): State<ApiState>) -> ApiResult<serde_json::Value> {
@@ -295,7 +366,7 @@ async fn execute_run(
     Ok((
         StatusCode::ACCEPTED,
         Json(
-            serde_json::json!({"run_id":run.id.to_string(), "execution":"started", "provider":if request.live {"openai"} else {"mock"}}),
+            serde_json::json!({"run_id":run.id.to_string(), "execution":"started", "provider":if request.live {"configured"} else {"mock"}}),
         ),
     ))
 }
@@ -428,6 +499,18 @@ struct ErrorResponse {
 }
 
 type ApiResult<T> = Result<(StatusCode, Json<T>), (StatusCode, Json<ErrorResponse>)>;
+
+fn store_error(error: harness_store::StoreError) -> (StatusCode, Json<ErrorResponse>) {
+    if matches!(error, harness_store::StoreError::NotFound(_)) {
+        api_error(StatusCode::NOT_FOUND, "not_found", error.to_string())
+    } else {
+        api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "read_failed",
+            "could not read dashboard data",
+        )
+    }
+}
 
 fn api_error(
     status: StatusCode,
