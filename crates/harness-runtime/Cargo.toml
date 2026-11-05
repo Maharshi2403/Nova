@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 globset = "0.4.21"
 harness-core = { path = "../harness-core" }
+harness-store = { path = "../harness-store" }
 ignore = "0.4.34"
 regex = "1.13.1"
 serde = { version = "1", features = ["derive"] }
@@ -19,6 +20,5 @@ tokio = { version = "1", features = ["io-util", "process", "rt", "time", "macros
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
-harness-store = { path = "../harness-store" }
 tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

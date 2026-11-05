@@ -10,6 +10,7 @@ use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, S
 pub mod leases;
 pub mod plans;
 pub mod repository;
+pub mod verification;
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 

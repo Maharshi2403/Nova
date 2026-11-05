@@ -5,5 +5,6 @@ pub mod git;
 pub mod priority;
 pub mod readiness;
 pub mod supervisor;
+pub mod verifier;
 pub mod worker;
 pub mod worktree;
