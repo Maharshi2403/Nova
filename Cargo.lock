@@ -709,6 +709,7 @@ dependencies = [
  "harness-daemon",
  "harness-runtime",
  "rpassword",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror",

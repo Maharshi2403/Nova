@@ -13,7 +13,7 @@ use axum::routing::{get, patch, post};
 use axum::{Json, Router};
 use harness_core::domain::{Priority, Project, ProjectId, Run, RunId, RunState, Task};
 use harness_core::plan::PlanProposal;
-use harness_runtime::git::register_repo;
+use harness_runtime::git::inspect_repo;
 use harness_runtime::scheduler::tick;
 use harness_store::Store;
 use harness_store::plans::{PlanRecord, PlanRepository, PlanStatus};
@@ -362,7 +362,7 @@ async fn execute_run(
             "execution runtime is not configured",
         )
     })?;
-    engine.launch_with_live(state.store, run.id.clone(), request.python, request.allowed_test_commands, request.concurrency, request.model_config).await.map_err(|_| api_error(StatusCode::CONFLICT, "execution_denied", "check trust, run approval, exact test commands, Python path, clean repository, routing and budgets"))?;
+    engine.launch_with_live(state.store, run.id.clone(), request.python, request.allowed_test_commands, request.concurrency, request.model_config).await.map_err(|error| api_error(StatusCode::CONFLICT, "execution_denied", if error.starts_with("working tree has uncommitted changes") { "Repository has uncommitted changes. Commit or stash your work before execution; Nova has left your files untouched." } else { "check trust, run approval, exact test commands, Python path, clean repository, routing and budgets" }))?;
     Ok((
         StatusCode::ACCEPTED,
         Json(
@@ -531,7 +531,7 @@ async fn create_project(
     Json(request): Json<CreateProjectRequest>,
 ) -> ApiResult<ProjectResponse> {
     let root = if request.trusted_local {
-        register_repo(&request.repo_path).await.map(|r| r.root)
+        inspect_repo(&request.repo_path).await.map(|r| r.root)
     } else {
         // Do not invoke Git or repository helpers before the user's trust decision.
         harness_runtime::git::validate_repo_path(&request.repo_path)

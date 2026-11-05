@@ -399,3 +399,22 @@ browser-origin rejection is preserved. Multi-provider execution now reports
 Validation: daemon API 14 tests passed; workspace Clippy passed. New tests cover
 paging, totals, auth, hostile origins, invalid limits and missing evidence.
 Next H-067: native macOS dashboard and credential-free CLI bridge.
+
+## H-067 — native macOS management interface
+
+Added native SwiftUI project/run/task views, provider key setup, model routing,
+guided operator-authored task plans, separate approval/execution review, controls,
+usage, activity and verifier/commit evidence. The bounded stdin CLI bridge keeps
+bearers and keys out of argv/URLs/UI responses; browser-origin rejection remains.
+Desktop setup uses Keychain; no paid generation was performed during development.
+
+User testing found dirty checkouts were rejected at project import. Import now
+inspects the Git root without requiring clean files, while execution retains the
+clean-tree gate. HTTP validation failures now show their message instead of being
+mislabelled malformed HTTP. A regression test verifies dirty files remain intact.
+
+Validation: Swift native compilation passed; native overview/provider/project forms
+visually inspected. Desktop bridge tests 2 passed including a complete reviewed,
+approved, verified/integrated mock task and key/header-injection rejection. Daemon
+API tests 15 passed, Git repository tests 6 passed, workspace Clippy passed.
+Next H-068: `nova ui`, durable application packaging/install and final smoke.

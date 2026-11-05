@@ -125,9 +125,8 @@ pub async fn git(cwd: &Path, args: &[&str]) -> Result<String, RepoError> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-/// Register `input` as a trusted repository: it must be an existing Git repository root
-/// with at least one commit and a clean working tree (untracked files count as dirty).
-pub async fn register_repo(input: &str) -> Result<TrustedRepo, RepoError> {
+/// Inspect a trusted repository root without changing or requiring a clean checkout.
+pub async fn inspect_repo(input: &str) -> Result<TrustedRepo, RepoError> {
     let root = validate_repo_path(input)?;
     let top = match git(&root, &["rev-parse", "--show-toplevel"]).await {
         Ok(t) => t,
@@ -147,8 +146,24 @@ pub async fn register_repo(input: &str) -> Result<TrustedRepo, RepoError> {
         Err(RepoError::GitFailed { .. }) => return Err(RepoError::NoCommits),
         Err(e) => return Err(e),
     };
+    let branch = git(&root, &["symbolic-ref", "--short", "-q", "HEAD"])
+        .await
+        .ok()
+        .map(|b| b.trim().to_owned())
+        .filter(|b| !b.is_empty());
+    Ok(TrustedRepo {
+        root,
+        head_sha,
+        branch,
+    })
+}
+
+/// Execution requires a committed, clean base. Import alone uses `inspect_repo`.
+pub async fn register_repo(input: &str) -> Result<TrustedRepo, RepoError> {
+    let repo = inspect_repo(input).await?;
+    let root = &repo.root;
     let status = git(
-        &root,
+        root,
         &["status", "--porcelain=v1", "--untracked-files=normal"],
     )
     .await?;
@@ -160,14 +175,5 @@ pub async fn register_repo(input: &str) -> Result<TrustedRepo, RepoError> {
     if !entries.is_empty() {
         return Err(RepoError::Dirty { entries });
     }
-    let branch = git(&root, &["symbolic-ref", "--short", "-q", "HEAD"])
-        .await
-        .ok()
-        .map(|b| b.trim().to_owned())
-        .filter(|b| !b.is_empty());
-    Ok(TrustedRepo {
-        root,
-        head_sha,
-        branch,
-    })
+    Ok(repo)
 }

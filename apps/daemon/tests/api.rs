@@ -560,3 +560,39 @@ async fn dashboard_inventory_is_authenticated_bounded_and_durable() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn trusted_project_import_preserves_dirty_files_but_execution_gate_stays_clean() {
+    let (_data, store, repo) = fixture().await;
+    std::fs::write(repo.path().join("unfinished.txt"), "user work\n").unwrap();
+    let before = git(repo.path(), &["status", "--porcelain=v1"])
+        .await
+        .unwrap();
+    let response = api_router(TOKEN.into(), store)
+        .oneshot(
+            auth(Request::post("/v1/projects"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({"name":"Work in progress","repo_path":repo.path(),"trusted_local":true})
+                        .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("unfinished.txt")).unwrap(),
+        "user work\n"
+    );
+    assert_eq!(
+        git(repo.path(), &["status", "--porcelain=v1"])
+            .await
+            .unwrap(),
+        before
+    );
+    assert!(matches!(
+        harness_runtime::git::register_repo(repo.path().to_str().unwrap()).await,
+        Err(harness_runtime::git::RepoError::Dirty { .. })
+    ));
+}

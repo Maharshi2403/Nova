@@ -3,6 +3,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
+mod desktop;
 mod providers;
 mod startup;
 
@@ -22,6 +23,8 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
+    #[command(name = "__desktop-request", hide = true)]
+    DesktopRequest,
     Providers {
         #[command(subcommand)]
         command: providers::ProviderCommand,
@@ -128,6 +131,10 @@ enum CliError {
     EmptyToken,
     #[error("could not contact loopback daemon: {0}")]
     Connect(#[source] std::io::Error),
+    #[error("request rejected: {0}")]
+    Rejected(String),
+    #[error("desktop request failed: {0}")]
+    Desktop(String),
     #[error("daemon returned malformed HTTP: {0}")]
     Protocol(String),
     #[error("request input is invalid: {0}")]
@@ -176,6 +183,9 @@ fn main() {
 fn execute(cli: Cli) -> Result<String, CliError> {
     let data_dir = cli.daemon_dir.map(Ok).unwrap_or_else(default_data_dir)?;
     let command = cli.command.unwrap_or(Command::Start);
+    if matches!(command, Command::DesktopRequest) {
+        return desktop::request(&data_dir);
+    }
     if matches!(command, Command::Start) {
         return startup::start(&data_dir, cli.json);
     }
@@ -196,7 +206,8 @@ fn execute(cli: Cli) -> Result<String, CliError> {
     };
     let client = Client::from_data_dir(&data_dir)?;
     let response = match command {
-        Command::Routes { .. }
+        Command::DesktopRequest
+        | Command::Routes { .. }
         | Command::Providers { .. }
         | Command::Models { .. }
         | Command::Start
@@ -399,7 +410,11 @@ impl Client {
             .and_then(|line| line.split_whitespace().nth(1))
             .ok_or_else(|| CliError::Protocol("response lacks status".into()))?;
         if !status.starts_with('2') {
-            return Err(CliError::Protocol(format!("HTTP {status}: {body}")));
+            let message = serde_json::from_str::<serde_json::Value>(body)
+                .ok()
+                .and_then(|value| value["message"].as_str().map(str::to_owned))
+                .unwrap_or_else(|| format!("HTTP {status}"));
+            return Err(CliError::Rejected(message));
         }
         Ok(body.to_owned())
     }

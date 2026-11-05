@@ -6,7 +6,7 @@ use sqlx::Row;
 #[derive(Serialize)]
 pub struct Dashboard {
     pub projects: Vec<DashboardProject>,
-    pub runs: Vec<Run>,
+    pub runs: Vec<DashboardRun>,
     pub project_count: i64,
     pub run_count: i64,
     pub offset: u32,
@@ -17,6 +17,12 @@ pub struct DashboardProject {
     #[serde(flatten)]
     pub project: Project,
     pub trusted_local: bool,
+}
+#[derive(Serialize)]
+pub struct DashboardRun {
+    #[serde(flatten)]
+    pub run: Run,
+    pub plan_version: Option<i64>,
 }
 impl Store {
     pub async fn dashboard(&self, offset: u32, limit: u32) -> Result<Dashboard, StoreError> {
@@ -45,7 +51,7 @@ impl Store {
             })
             .collect::<Result<Vec<_>, StoreError>>()?;
         let rows = sqlx::query(
-            "SELECT id,project_id,state,revision FROM runs ORDER BY rowid DESC LIMIT ? OFFSET ?",
+            "SELECT id,project_id,state,revision,(SELECT MAX(version) FROM plans WHERE run_id=runs.id) AS plan_version FROM runs ORDER BY rowid DESC LIMIT ? OFFSET ?",
         )
         .bind(limit)
         .bind(offset)
@@ -54,11 +60,14 @@ impl Store {
         let runs = rows
             .into_iter()
             .map(|r| {
-                Ok(Run {
-                    id: RunId::new(r.try_get::<String, _>("id")?)?,
-                    project_id: ProjectId::new(r.try_get::<String, _>("project_id")?)?,
-                    state: super::repository::enum_from_text(r.try_get("state")?)?,
-                    revision: super::repository::to_u64(r.try_get("revision")?)?,
+                Ok(DashboardRun {
+                    plan_version: r.try_get("plan_version")?,
+                    run: Run {
+                        id: RunId::new(r.try_get::<String, _>("id")?)?,
+                        project_id: ProjectId::new(r.try_get::<String, _>("project_id")?)?,
+                        state: super::repository::enum_from_text(r.try_get("state")?)?,
+                        revision: super::repository::to_u64(r.try_get("revision")?)?,
+                    },
                 })
             })
             .collect::<Result<Vec<_>, StoreError>>()?;
