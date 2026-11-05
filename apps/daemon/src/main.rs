@@ -4,12 +4,15 @@ use harness_daemon::{default_data_dir, loopback_ephemeral, start};
 /// AI Harness supervisor daemon (empty entrypoint).
 #[derive(Parser, Debug)]
 #[command(name = "harnessd", version, about)]
-struct Args {}
+struct Args {
+    #[arg(long)]
+    data_dir: Option<std::path::PathBuf>,
+}
 
 #[tokio::main]
 async fn main() {
-    let _args = Args::parse();
-    let data_dir = match default_data_dir() {
+    let args = Args::parse();
+    let data_dir = match args.data_dir.map(Ok).unwrap_or_else(default_data_dir) {
         Ok(path) => path,
         Err(error) => {
             eprintln!("harnessd: {error}");

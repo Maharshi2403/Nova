@@ -109,6 +109,10 @@ def run_mock_assignment(start: Envelope, stdin: BinaryIO, stdout: BinaryIO) -> N
         write_frame(stdout, _envelope(start, "failed", failed.model_dump()))
         return
 
+    if assignment.role == "mock_coder":
+        run_mock_coder(start, stdin, stdout)
+        return
+
     write_frame(stdout, _envelope(start, "progress", {"message": "reading context"}))
     request = _envelope(
         start,
@@ -140,4 +144,52 @@ def run_mock_assignment(start: Envelope, stdin: BinaryIO, stdout: BinaryIO) -> N
         write_frame(stdout, _envelope(start, "failed", failed.model_dump()))
         return
     done = Completed(summary="mock assignment finished", changed_paths=[], claimed_tests=[])
+    write_frame(stdout, _envelope(start, "completed", done.model_dump()))
+
+
+def run_mock_coder(start: Envelope, stdin: BinaryIO, stdout: BinaryIO) -> None:
+    """Offline fixture coder. Writes clearly synthetic content only to exact task paths."""
+
+    def tool(name: str, arguments: dict[str, Any]) -> ToolResponse:
+        request = _envelope(start, "tool_request", {"tool": name, "arguments": arguments})
+        write_frame(stdout, request)
+        reply = read_frame(stdin)
+        if (
+            reply is None
+            or reply.kind != "tool_response"
+            or reply.correlation_id != str(request.message_id)
+        ):
+            raise AssignmentError("missing or mismatched broker response")
+        response = ToolResponse.model_validate(reply.payload)
+        if not response.ok:
+            raise AssignmentError("broker denied fixture operation")
+        return response
+
+    task = tool("task.describe", {}).result
+    if not isinstance(task, dict):
+        raise AssignmentError("invalid task description")
+    paths = task["candidate_paths"]
+    if not paths or any(any(c in p for c in "*?[]{}") for p in paths):
+        write_frame(
+            stdout,
+            _envelope(
+                start, "failed", {"reason": "mock coder needs exact file paths", "retryable": False}
+            ),
+        )
+        return
+    for path in paths:
+        tool("repo.patch", {"path": path, "content": f"Mock task {task['id']}\n"})
+    usage = Usage(
+        provider="mock",
+        model_id="mock-coder",
+        input_tokens=0,
+        output_tokens=0,
+        cached_input_tokens=0,
+        cost_usd=0,
+        price_source="provider_billed",
+    )
+    write_frame(stdout, _envelope(start, "usage", usage.model_dump()))
+    done = Completed(
+        summary="synthetic fixture files written", changed_paths=paths, claimed_tests=[]
+    )
     write_frame(stdout, _envelope(start, "completed", done.model_dump()))

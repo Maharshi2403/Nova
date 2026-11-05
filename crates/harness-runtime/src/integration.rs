@@ -108,6 +108,16 @@ impl Integrator {
     pub fn branch(&self) -> &str {
         &self.branch
     }
+    pub fn with_checks(&self, final_checks: Vec<Vec<String>>) -> Self {
+        Self {
+            repo_root: self.repo_root.clone(),
+            worktree_path: self.worktree_path.clone(),
+            target_ref: self.target_ref.clone(),
+            branch: self.branch.clone(),
+            final_checks,
+            lock: self.lock.clone(),
+        }
+    }
 
     pub fn worktree_path(&self) -> &Path {
         &self.worktree_path

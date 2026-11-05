@@ -20,6 +20,17 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
+    /// Execute an approved run using the deterministic offline fixture worker.
+    Execute {
+        run_id: String,
+        #[arg(long)]
+        python: PathBuf,
+        /// JSON array of exact argv arrays approved for verifier execution.
+        #[arg(long)]
+        test_commands: PathBuf,
+        #[arg(long, default_value_t = 2)]
+        concurrency: usize,
+    },
     Init {
         repo: PathBuf,
         #[arg(long)]
@@ -102,6 +113,17 @@ fn execute(cli: Cli) -> Result<String, CliError> {
     let data_dir = cli.daemon_dir.unwrap_or(default_data_dir()?);
     let client = Client::from_data_dir(&data_dir)?;
     let response = match cli.command {
+        Command::Execute {
+            run_id,
+            python,
+            test_commands,
+            concurrency,
+        } => {
+            let commands = std::fs::read_to_string(test_commands).map_err(CliError::Input)?;
+            let commands: Vec<Vec<String>> =
+                serde_json::from_str(&commands).map_err(CliError::DiscoveryJson)?;
+            client.request("POST", &format!("/v1/runs/{run_id}/execute"), Some(serde_json::json!({"python":python, "allowed_test_commands":commands, "concurrency":concurrency})))?
+        }
         Command::Init { repo, name } => client.request(
             "POST",
             "/v1/projects",

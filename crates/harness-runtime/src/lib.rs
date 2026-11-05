@@ -5,6 +5,7 @@ pub mod budget;
 pub mod committer;
 pub mod context;
 pub mod diff_gate;
+pub mod engine;
 pub mod git;
 pub mod integration;
 pub mod locks;

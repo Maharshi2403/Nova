@@ -199,6 +199,7 @@ impl Repository for Store {
         let allowed = matches!(
             (current.state, to),
             (RunState::Running, RunState::Paused)
+                | (RunState::Running, RunState::Completed)
                 | (RunState::Paused, RunState::Running)
                 | (RunState::Planning, RunState::Cancelled)
                 | (RunState::AwaitingApproval, RunState::Cancelled)
@@ -225,6 +226,18 @@ impl Repository for Store {
                 expected: expected_revision,
                 actual,
             });
+        }
+        if to == RunState::Completed {
+            let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tasks WHERE run_id = ?")
+                .bind(id.as_str())
+                .fetch_one(&mut *tx)
+                .await?;
+            let incomplete: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tasks t LEFT JOIN git_artifacts g ON g.run_id = t.run_id AND g.task_id = t.id WHERE t.run_id = ? AND (t.state <> 'completed' OR g.integration_commit_sha IS NULL)").bind(id.as_str()).fetch_one(&mut *tx).await?;
+            if total == 0 || incomplete > 0 {
+                return Err(StoreError::PlanNotDecidable(
+                    "run requires completed tasks with integration evidence",
+                ));
+            }
         }
         sqlx::query(
             "INSERT INTO events (run_id, kind, from_state, to_state, idempotency_key) \

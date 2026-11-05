@@ -77,7 +77,13 @@ pub async fn start(data_dir: impl AsRef<Path>, bind: SocketAddr) -> Result<Daemo
     })
     .expect("discovery is serializable");
     std::fs::write(&discovery_path, discovery).map_err(DaemonError::DiscoveryFile)?;
-    let app = api_router(token.clone(), store);
+    let app = api_router_with_runtime(
+        token.clone(),
+        store,
+        Some(harness_runtime::engine::Engine::new(
+            data_dir.join("execution"),
+        )),
+    );
     tokio::spawn(async move {
         let _ = axum::serve(listener, app).await;
     });
@@ -99,6 +105,7 @@ impl Daemon {
 struct ApiState {
     store: Store,
     event_waiters: Arc<tokio::sync::Semaphore>,
+    engine: Option<harness_runtime::engine::Engine>,
 }
 
 pub fn router(token: String) -> Router {
@@ -111,6 +118,14 @@ pub fn router(token: String) -> Router {
 }
 
 pub fn api_router(token: String, store: Store) -> Router {
+    api_router_with_runtime(token, store, None)
+}
+
+pub fn api_router_with_runtime(
+    token: String,
+    store: Store,
+    engine: Option<harness_runtime::engine::Engine>,
+) -> Router {
     Router::new().route("/healthz", get(healthz)).nest(
         "/v1",
         Router::new()
@@ -124,6 +139,7 @@ pub fn api_router(token: String, store: Store) -> Router {
             .route("/runs/{run_id}/pause", post(pause_run))
             .route("/runs/{run_id}/resume", post(resume_run))
             .route("/runs/{run_id}/cancel", post(cancel_run))
+            .route("/runs/{run_id}/execute", post(execute_run))
             .route("/runs/{run_id}/tasks", get(list_tasks))
             .route(
                 "/tasks/{run_id}/{task_id}/priority",
@@ -135,6 +151,7 @@ pub fn api_router(token: String, store: Store) -> Router {
             .with_state(ApiState {
                 store,
                 event_waiters: Arc::new(tokio::sync::Semaphore::new(64)),
+                engine,
             })
             .layer(axum::middleware::from_fn_with_state(token, require_bearer)),
     )
@@ -142,6 +159,36 @@ pub fn api_router(token: String, store: Store) -> Router {
 
 async fn healthz() -> Json<serde_json::Value> {
     Json(serde_json::json!({"status": "ok"}))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExecuteRequest {
+    python: PathBuf,
+    allowed_test_commands: Vec<Vec<String>>,
+    concurrency: usize,
+}
+
+async fn execute_run(
+    State(state): State<ApiState>,
+    RoutePath(run_id): RoutePath<String>,
+    Json(request): Json<ExecuteRequest>,
+) -> ApiResult<serde_json::Value> {
+    let run = load_run(&state.store, run_id).await?;
+    let engine = state.engine.ok_or_else(|| {
+        api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "runtime_unavailable",
+            "execution runtime is not configured",
+        )
+    })?;
+    engine.launch(state.store, run.id.clone(), request.python, request.allowed_test_commands, request.concurrency).await.map_err(|_| api_error(StatusCode::CONFLICT, "execution_denied", "check run approval, exact test command approvals, Python path, clean repository and concurrency"))?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(
+            serde_json::json!({"run_id":run.id.to_string(), "execution":"started", "provider":"mock"}),
+        ),
+    ))
 }
 
 async fn control() -> Json<serde_json::Value> {

@@ -1,6 +1,6 @@
 # Implementation progress
 
-Latest completed ticket: H-052 — bounded replayable events.
+Latest completed ticket: H-053a — connect offline execution.
 Prior implementation: H-001..H-044 appear in Git history; their original platform
 evidence has not been independently audited. Current stage: G5.
 
@@ -100,5 +100,19 @@ the permit. There is no unbounded per-client event buffer. Daemon API tests PASS
 Workspace all-target Clippy, formatting and diff checks PASS.
 
 Next: H-053a execution wiring, then H-053b fault/load evidence (see implementation backlog).
+
+## H-053a verification
+
+Connected explicit authenticated execute endpoint/CLI to the bounded pool, real
+Python IPC mock coder, brokered path-scoped writes, recorded usage, real verifier,
+task commits and serialized integration. Exact acceptance argv must be approved by
+the API caller before dispatch. Run completion requires all tasks integrated.
+The mock coder writes synthetic fixture content; it does not pretend to solve
+arbitrary coding requests. Integration branches do not change the user's checkout.
+
+`cargo test --workspace --offline`: PASS, including new real-worker execution test;
+`cargo clippy --offline --workspace --all-targets -- -D warnings`: PASS;
+Python pytest PASS (82), Ruff check/format PASS (27 files), mypy PASS (26 files).
+Local macOS only, no live API calls. Next: H-053b load and CLI fault evidence.
 The original three untracked handoff documents are intentionally excluded from
 the feature commit and left unchanged.
