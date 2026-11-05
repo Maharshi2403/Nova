@@ -1,6 +1,6 @@
 # Implementation progress
 
-Latest completed ticket: H-055 — centralized redaction.
+Latest completed ticket: H-056 — durable scoped approvals.
 Prior implementation: H-001..H-044 appear in Git history; their original platform
 evidence has not been independently audited. Current stage: G5.
 
@@ -158,5 +158,18 @@ verifier (2), worker (7) PASS; workspace Clippy and format/diff checks PASS.
 No normal log includes model prompts. Pattern matching cannot discover every
 unknown secret; protected paths and minimal context remain required.
 Next: H-056 durable typed approvals.
+
+## H-056 verification
+
+Typed command/destructive/network/push/deploy approvals bind exact argv, canonical
+cwd and task attempt. Pending, decided and consumed events are transactional;
+approvals are single-use, revision checked, not transferable to changed commands,
+and invalidated by terminal tasks/new attempts. Broad prefixes cannot implicitly
+approve recognized risky operations. Worker command requests can create durable
+requests but cannot decide them. Authenticated API/CLI list and human-decision
+commands are implemented; workers receive no API bearer token.
+Store approvals (1), runtime approval_policy (1), broker_command (7), engine (1),
+daemon API (11) PASS; workspace Clippy/format/diff PASS. Credential-like argv is
+rejected rather than persisted. Next: H-057 explicit trust/isolation policy.
 The original three untracked handoff documents are intentionally excluded from
 the feature commit and left unchanged.

@@ -172,6 +172,7 @@ pub fn api_router_with_runtime(
             )
             .route("/events", get(list_events))
             .route("/usage", get(list_usage))
+            .route("/approvals", get(list_approvals))
             .route("/approvals/{approval_id}/decision", post(decide_approval))
             .with_state(ApiState {
                 store,
@@ -788,14 +789,48 @@ async fn list_usage(
     Ok((StatusCode::OK, Json(values)))
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ApprovalDecision {
+    revision: i64,
+    approved: bool,
+}
+async fn list_approvals(
+    State(state): State<ApiState>,
+    Query(query): Query<UsageQuery>,
+) -> ApiResult<Vec<harness_store::approvals::Approval>> {
+    let run = load_run(&state.store, query.run_id).await?;
+    let approvals = state.store.list_approvals(&run.id).await.map_err(|_| {
+        api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "approval_read_failed",
+            "could not list approvals",
+        )
+    })?;
+    Ok((StatusCode::OK, Json(approvals)))
+}
 async fn decide_approval(
-    RoutePath(_approval_id): RoutePath<String>,
-) -> (StatusCode, Json<ErrorResponse>) {
-    api_error(
-        StatusCode::NOT_FOUND,
-        "approval_not_found",
-        "approval decisions are not available until an approval is requested",
-    )
+    State(state): State<ApiState>,
+    RoutePath(id): RoutePath<String>,
+    Json(request): Json<ApprovalDecision>,
+) -> ApiResult<harness_store::approvals::Approval> {
+    let approval = state
+        .store
+        .decide_approval(&id, request.revision, request.approved)
+        .await
+        .map_err(|e| {
+            let status = if matches!(e, harness_store::StoreError::NotFound(_)) {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::CONFLICT
+            };
+            api_error(
+                status,
+                "approval_not_decidable",
+                "approval missing, stale, terminal or already decided",
+            )
+        })?;
+    Ok((StatusCode::OK, Json(approval)))
 }
 
 #[cfg(unix)]

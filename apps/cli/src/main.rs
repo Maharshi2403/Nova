@@ -20,6 +20,15 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
+    Approvals {
+        run_id: String,
+    },
+    Decision {
+        approval_id: String,
+        revision: i64,
+        #[arg(long)]
+        approve: bool,
+    },
     /// Execute an approved run using the deterministic offline fixture worker.
     Execute {
         run_id: String,
@@ -113,6 +122,18 @@ fn execute(cli: Cli) -> Result<String, CliError> {
     let data_dir = cli.daemon_dir.unwrap_or(default_data_dir()?);
     let client = Client::from_data_dir(&data_dir)?;
     let response = match cli.command {
+        Command::Approvals { run_id } => {
+            client.request("GET", &format!("/v1/approvals?run_id={run_id}"), None)?
+        }
+        Command::Decision {
+            approval_id,
+            revision,
+            approve,
+        } => client.request(
+            "POST",
+            &format!("/v1/approvals/{approval_id}/decision"),
+            Some(serde_json::json!({"revision":revision,"approved":approve})),
+        )?,
         Command::Execute {
             run_id,
             python,

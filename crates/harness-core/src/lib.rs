@@ -1,5 +1,6 @@
 //! Domain types and versioned contracts for AI Harness.
 
+pub mod approval;
 pub mod config;
 pub mod dag;
 pub mod domain;

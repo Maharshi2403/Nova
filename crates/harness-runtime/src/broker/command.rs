@@ -66,7 +66,9 @@ impl CommandPolicy {
             .allowed_prefixes
             .iter()
             .any(|p| !p.is_empty() && argv.starts_with(p));
-        if allowlisted || self.approved.iter().any(|a| a == argv) {
+        if (allowlisted && harness_core::approval::classify(argv).is_none())
+            || self.approved.iter().any(|a| a == argv)
+        {
             Decision::Allowed
         } else {
             Decision::ApprovalRequired
@@ -198,6 +200,12 @@ pub struct RepoCommandBroker {
     commands: CommandPolicy,
     allow_cmd: bool,
     pending: Vec<Vec<String>>,
+    approval_store: Option<(
+        harness_store::Store,
+        harness_core::domain::RunId,
+        harness_core::domain::TaskId,
+        u32,
+    )>,
 }
 
 impl RepoCommandBroker {
@@ -213,7 +221,18 @@ impl RepoCommandBroker {
             commands,
             allow_cmd: allowed_tools.iter().any(|t| t == "cmd.run"),
             pending: Vec::new(),
+            approval_store: None,
         })
+    }
+    pub fn with_approval_store(
+        mut self,
+        store: harness_store::Store,
+        run: harness_core::domain::RunId,
+        task: harness_core::domain::TaskId,
+        attempt: u32,
+    ) -> Self {
+        self.approval_store = Some((store, run, task, attempt));
+        self
     }
 
     /// Commands that were denied for lack of approval, for the approval workflow.
@@ -253,13 +272,43 @@ impl RepoCommandBroker {
             Err(e) => return fail("error", e),
         };
         if self.commands.decide(&args.argv) != Decision::Allowed {
-            if !self.pending.contains(&args.argv) {
-                self.pending.push(args.argv.clone());
+            if let Some((store, run, task, attempt)) = &self.approval_store {
+                let action = harness_core::approval::Action {
+                    operation: harness_core::approval::classify(&args.argv)
+                        .unwrap_or(harness_core::approval::Operation::Command),
+                    argv: args.argv.clone(),
+                    cwd: cwd.to_string_lossy().into_owned(),
+                };
+                match store
+                    .request_approval(
+                        &uuid::Uuid::new_v4().to_string(),
+                        run,
+                        task,
+                        *attempt,
+                        &action,
+                    )
+                    .await
+                {
+                    Ok(approval) => {
+                        if !store
+                            .consume_approval(&approval.id, &action)
+                            .await
+                            .unwrap_or(false)
+                        {
+                            return fail("approval_required", approval.id);
+                        }
+                    }
+                    Err(_) => return fail("approval_denied", "could not record scoped approval"),
+                }
+            } else {
+                if !self.pending.contains(&args.argv) {
+                    self.pending.push(args.argv.clone());
+                }
+                return fail(
+                    "approval_required",
+                    "command is not allowlisted or approved",
+                );
             }
-            return fail(
-                "approval_required",
-                "command is not allowlisted or approved",
-            );
         }
         let timeout = args
             .timeout_seconds

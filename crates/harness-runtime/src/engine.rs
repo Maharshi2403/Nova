@@ -1,6 +1,9 @@
 //! Explicit offline execution: Python IPC -> broker -> verifier -> task commit -> integration.
 use crate::{
-    broker::write::RepoWriteBroker,
+    broker::{
+        command::{CommandPolicy, RepoCommandBroker},
+        write::RepoWriteBroker,
+    },
     committer::TaskCommitter,
     diff_gate::DiffGate,
     git::{TrustedRepo, git, register_repo},
@@ -205,7 +208,7 @@ struct Execution {
     capacity: Arc<Semaphore>,
 }
 struct Broker {
-    inner: RepoWriteBroker,
+    inner: RepoCommandBroker,
     task: Task,
     store: Store,
     lease: String,
@@ -259,9 +262,18 @@ impl Execution {
             "task.describe".into(),
             "repo.read".into(),
             "repo.patch".into(),
+            "cmd.run".into(),
         ];
         let inner = RepoWriteBroker::new(&worktree.path, &tools, &task.spec.candidate_paths)
             .map_err(|e| e.to_string())?;
+        let inner = RepoCommandBroker::new(inner, &worktree.path, &tools, CommandPolicy::default())
+            .map_err(|e| e.to_string())?
+            .with_approval_store(
+                self.store.clone(),
+                task.run_id.clone(),
+                task.id().clone(),
+                task.attempt,
+            );
         let mut broker = Broker {
             inner,
             task: task.clone(),

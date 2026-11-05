@@ -7,6 +7,7 @@ use sqlx::SqlitePool;
 use sqlx::migrate::Migrator;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 
+pub mod approvals;
 pub mod budgets;
 pub mod git_artifacts;
 pub mod leases;
