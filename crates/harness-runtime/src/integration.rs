@@ -1,6 +1,8 @@
 //! Serialized, non-destructive integration of verified task commits.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, OnceLock, Weak};
 
 use harness_core::domain::{Task, TaskState};
 use harness_store::Store;
@@ -43,7 +45,23 @@ pub struct Integrator {
     target_ref: String,
     branch: String,
     final_checks: Vec<Vec<String>>,
-    lock: Mutex<()>,
+    lock: Arc<Mutex<()>>,
+}
+
+fn project_lock(root: &Path) -> Arc<Mutex<()>> {
+    type Locks = std::sync::Mutex<HashMap<PathBuf, Weak<Mutex<()>>>>;
+    static LOCKS: OnceLock<Locks> = OnceLock::new();
+    let mut locks = LOCKS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    locks.retain(|_, v| v.strong_count() > 0);
+    if let Some(lock) = locks.get(root).and_then(Weak::upgrade) {
+        return lock;
+    }
+    let lock = Arc::new(Mutex::new(()));
+    locks.insert(root.to_path_buf(), Arc::downgrade(&lock));
+    lock
 }
 
 impl Integrator {
@@ -76,13 +94,14 @@ impl Integrator {
                 root: "integration worktree must be outside the repository".into(),
             }));
         }
+        let lock = project_lock(&repo_root);
         Ok(Self {
             repo_root,
             worktree_path: worktree_base.join(format!("integration-{run_id}")),
             target_ref: target_ref.to_owned(),
             branch: format!("harness/integration/{run_id}"),
             final_checks,
-            lock: Mutex::new(()),
+            lock,
         })
     }
 
@@ -100,6 +119,13 @@ impl Integrator {
         task: &Task,
     ) -> Result<IntegrationOutcome, IntegrationError> {
         let _guard = self.lock.lock().await;
+        let current = store.get_task(&task.run_id, task.id()).await?;
+        if !matches!(
+            current.state,
+            TaskState::Reviewing | TaskState::Integrating | TaskState::Completed
+        ) {
+            return Err(IntegrationError::InvalidTaskState(current.state));
+        }
         let record = store
             .get_task_commit(&task.run_id, task.id())
             .await?
@@ -115,6 +141,10 @@ impl Integrator {
                     "git".into(),
                     "-c".into(),
                     "core.fsmonitor=false".into(),
+                    "-c".into(),
+                    "core.hooksPath=".into(),
+                    "-c".into(),
+                    "commit.gpgsign=false".into(),
                     "merge".into(),
                     "--no-ff".into(),
                     "--no-edit".into(),
@@ -166,6 +196,21 @@ impl Integrator {
 
     async fn ensure_worktree(&self) -> Result<(), IntegrationError> {
         if self.worktree_path.exists() {
+            let branch = git(&self.worktree_path, &["branch", "--show-current"]).await?;
+            let top = git(&self.worktree_path, &["rev-parse", "--show-toplevel"]).await?;
+            let root = std::fs::canonicalize(top.trim()).map(simplify)?;
+            let expected = std::fs::canonicalize(&self.worktree_path).map(simplify)?;
+            if branch.trim() != self.branch
+                || root != expected
+                || !git(&self.worktree_path, &["status", "--porcelain"])
+                    .await?
+                    .trim()
+                    .is_empty()
+            {
+                return Err(IntegrationError::Conflict(
+                    "integration worktree identity changed or has uncommitted changes".into(),
+                ));
+            }
             return Ok(());
         }
         let path = self.worktree_path.to_string_lossy().into_owned();
@@ -192,21 +237,22 @@ impl Integrator {
                 "git".into(),
                 "-c".into(),
                 "core.fsmonitor=false".into(),
-                "log".into(),
-                "--format=%H".into(),
+                "merge-base".into(),
+                "--is-ancestor".into(),
+                commit.into(),
                 "HEAD".into(),
             ],
             DEFAULT_COMMAND_TIMEOUT,
             MAX_COMMAND_OUTPUT_BYTES,
         )
         .await?;
-        if output.timed_out || output.exit_code != Some(0) {
+        if output.timed_out || !matches!(output.exit_code, Some(0 | 1)) {
             return Err(IntegrationError::Git(RepoError::GitFailed {
-                args: "log --format=%H HEAD".into(),
+                args: "merge-base --is-ancestor".into(),
                 stderr: format!("{}{}", output.stdout, output.stderr),
             }));
         }
-        Ok(output.stdout.lines().any(|sha| sha == commit))
+        Ok(output.exit_code == Some(0))
     }
 
     async fn complete_task(

@@ -1,6 +1,6 @@
 # Implementation progress
 
-Latest completed ticket: H-048 — bounded worker pool.
+Latest completed ticket: H-049 — shared serialized integration.
 Prior implementation: H-001..H-044 appear in Git history; their original platform
 evidence has not been independently audited. Current stage: G5.
 
@@ -62,6 +62,15 @@ blocked dependencies or denied budgets. `cargo test --offline -p harness-runtime
 --test pool`: PASS; `cargo clippy --offline -p harness-runtime --all-targets --
 -D warnings`: PASS; format and diff checks PASS.
 
-Next unblocked ticket: H-049 — shared serialized integration.
+## H-049 verification
+
+Integration instances share one FIFO async mutex per canonical repository, including
+across run IDs. Existing worktree identity/cleanliness and task state are checked
+before changes. Safe merge retains conflict branches; ancestor detection no longer
+depends on bounded Git log output. No force, reset, user checkout changes, or push.
+`cargo test --offline -p harness-runtime --test integration`: PASS (4 tests, including
+two concurrent instances); runtime all-target Clippy, formatting and diff checks PASS.
+
+Next unblocked ticket: H-050 — restart reconciliation.
 The original three untracked handoff documents are intentionally excluded from
 the feature commit and left unchanged.

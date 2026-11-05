@@ -20,6 +20,40 @@ struct Fixture {
     task_sha: String,
 }
 
+#[tokio::test]
+async fn parallel_integrator_instances_are_serialized() {
+    let f = fixture().await;
+    let a = Integrator::new(
+        &f.repo,
+        &f.integration_base,
+        "run-1",
+        "main",
+        vec![vec!["git".into(), "--version".into()]],
+    )
+    .unwrap();
+    let b = Integrator::new(
+        &f.repo,
+        &f.integration_base,
+        "run-1",
+        "main",
+        vec![vec!["git".into(), "--version".into()]],
+    )
+    .unwrap();
+    let (a, b) = tokio::join!(
+        a.integrate(&f.store, &f.task),
+        b.integrate(&f.store, &f.task)
+    );
+    assert_ne!(a.unwrap().replayed, b.unwrap().replayed);
+    assert_eq!(
+        f.store
+            .get_task(&f.task.run_id, f.task.id())
+            .await
+            .unwrap()
+            .state,
+        TaskState::Completed
+    );
+}
+
 async fn fixture() -> Fixture {
     let root = tempfile::tempdir().unwrap();
     let repo = root.path().join("repo");
