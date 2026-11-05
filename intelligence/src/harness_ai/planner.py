@@ -5,20 +5,13 @@ The planner only proposes. Rust re-validates the DAG and decides what may run.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from pydantic import ValidationError
 
+from harness_ai.context import MAX_CONTEXT_BYTES, build_prompt
 from harness_ai.plan import PlanProposal
 from harness_ai.providers.base import ModelProvider, ModelResult
-
-SYSTEM_PROMPT = (
-    "You are the planning supervisor of a coding harness. Return only JSON matching the plan "
-    "schema: requirements, assumptions, a recommended architecture with alternatives and "
-    "risks, and small tasks. Every task needs objective acceptance criteria. Never include "
-    "secrets."
-)
 
 
 class PlanningError(Exception):
@@ -37,13 +30,13 @@ async def propose_plan(
     model_id: str,
     max_output_tokens: int = 16_000,
     timeout_seconds: float = 120,
+    context_byte_cap: int = MAX_CONTEXT_BYTES,
 ) -> tuple[PlanProposal, ModelResult]:
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": json.dumps({"project_id": project_id, "idea": idea})},
-    ]
+    prompt = build_prompt(
+        "planner", {"project_id": project_id, "idea": idea}, byte_cap=context_byte_cap
+    )
     result = await provider.complete(
-        messages=messages,
+        messages=prompt.messages,
         schema=plan_schema(),
         model_id=model_id,
         max_output_tokens=max_output_tokens,
