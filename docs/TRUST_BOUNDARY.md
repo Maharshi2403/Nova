@@ -15,3 +15,34 @@ and generated code run with the user's privileges. Path checks, atomic writes an
 environment scrubbing reduce accidental exposure but cannot stop malicious trusted
 code or parent-directory TOCTOU attacks. Do not trust an unknown repository just to
 bypass this gate. Approved commands still require exact argv authorization.
+
+## Threats and controls
+
+- Repository prompt injection is untrusted data. It cannot approve a plan, alter
+  Rust budgets, change task state or authorize a tool. A worker completion claim
+  never replaces external verification and integration evidence.
+- Traversal, protected paths, symlink escapes and Windows path aliases are denied.
+  Writes use atomic replacement to avoid overwriting an external hardlink inode.
+  Parent-directory races remain a trusted-local limitation.
+- Risky commands require exact scoped single-use human approvals. Test argv is
+  explicitly reviewed at execution launch; a test runner can execute arbitrary repo
+  code and must not be treated as intrinsically safe.
+- Coder workers have scrubbed environments and isolated imports. Only a separate
+  provider adapter gets the daemon-scoped key for one authorized bounded request.
+  Rust records provider usage; uncertain calls retain reserved spend.
+- Local API tokens are random, stored with restrictive Unix permissions, absent
+  from worker environments, and never placed in URLs. Browser-origin requests are
+  rejected. Windows file protection depends on the private per-user directory ACL;
+  use a dedicated private data directory, not a shared location.
+- Logs/artifacts are bounded and redact known credentials/token patterns. This is
+  not a guarantee of detecting every unknown secret. Do not place secrets in prompts,
+  test argv or source files supplied to a model.
+- Crashes retain worktrees, reconcile leases and block uncertain side effects.
+  Running verifier commands can outlive a forcibly killed daemon. The runtime does
+  not identify arbitrary saved PIDs as safe to kill, and Windows taskkill is not a
+  Job Object isolation guarantee.
+
+Database rows and retained worktrees can contain private project information.
+Backups need the same access protection as source code. There is no remote/multi-user
+security boundary, automatic secret-store integration, disk encryption guarantee,
+or shipped OS sandbox backend. Desktop UI and automatic push/deploy are deferred.

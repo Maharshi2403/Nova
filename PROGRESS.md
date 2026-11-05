@@ -1,6 +1,6 @@
 # Implementation progress
 
-Latest locally verified implementation: H-058 — release matrix and regressions.
+Latest locally verified implementation: H-059 — operator documentation.
 Prior implementation: H-001..H-044 appear in Git history; their original platform
 evidence has not been independently audited. Current stage: G5.
 
@@ -239,5 +239,21 @@ scheduler CAS losers no longer abort unrelated running jobs, dispatch skips task
 already moved by another scheduler, and each run owns a distinct worktree registry.
 Daemon API tests PASS (12, including three control cycles/concurrent ticks), runtime
 engine/pool PASS, workspace Clippy/format/diff PASS. Next: H-059 operator docs.
+
+## H-059 verification
+
+Replaced stale scaffold README with working build/demo instructions, operator
+workflows, live opt-in/configuration, threat model, troubleshooting, backup/migration
+and future-client API contracts. Documented actual limitations: CLI submits typed
+plan JSON, foundational YAML resolver is not automatically applied by the daemon,
+capacity is two, review/conflict resolution is manual, no shipped hard sandbox,
+no automatic push or deployment. Live example is deliberately unavailable until
+the operator supplies reviewed account-specific model IDs/prices/capabilities.
+
+Documented three-task quickstart PASS via `uv run --locked --offline --project
+intelligence python scripts/offline_demo.py --tasks 3`. CLI/daemon help checked;
+local documentation links/example JSON validated; format/diff checks PASS.
+Hosted Windows/macOS and paid live smoke remain unverified. Next: H-060 local
+packaging and extracted-bundle installation smoke, without release publication.
 The original three untracked handoff documents are intentionally excluded from
 the feature commit and left unchanged.

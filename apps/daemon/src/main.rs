@@ -1,7 +1,7 @@
 use clap::Parser;
 use harness_daemon::{default_data_dir, loopback_ephemeral, start};
 
-/// AI Harness supervisor daemon (empty entrypoint).
+/// AI Harness supervisor daemon.
 #[derive(Parser, Debug)]
 #[command(name = "harnessd", version, about)]
 struct Args {

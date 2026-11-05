@@ -29,7 +29,7 @@ enum Command {
         #[arg(long)]
         approve: bool,
     },
-    /// Execute an approved run using the deterministic offline fixture worker.
+    /// Execute an approved run (offline mock by default; explicit live opt-in).
     Execute {
         run_id: String,
         #[arg(long)]
