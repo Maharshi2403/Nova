@@ -60,3 +60,9 @@ Do not start coding agents, approve plans, or enable a paid provider on startup.
 Every provider attempt remains Rust-authorized; unsupported/unpriced models must
 be explicit rather than silently assigned zero cost. No paid test calls. Arbitrary
 protocols need adapters; compatible endpoints can use the generic adapter.
+
+## H-065 — preserve configured venv interpreter path
+
+Release bundle smoke found that canonicalizing a Python venv's executable symlink
+selected the system interpreter and lost its installed package. Keep the checked
+absolute venv entry path, test symlink behavior, rebuild the bundle and rerun smoke.

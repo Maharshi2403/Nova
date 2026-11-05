@@ -101,3 +101,16 @@ fn saved_routes_generate_real_registry_and_credentials_stay_scoped() {
     settings.models[1].input_usd_per_million_tokens = None;
     assert!(settings.live_config().is_err());
 }
+#[cfg(unix)]
+#[test]
+fn python_keeps_absolute_virtualenv_symlink_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let venv = dir.path().join("runtime").join("bin");
+    std::fs::create_dir_all(&venv).unwrap();
+    let link = venv.join("python");
+    std::os::unix::fs::symlink(std::env::current_exe().unwrap(), &link).unwrap();
+    let resolved = ProviderStore::new(dir.path())
+        .python(Some(link.clone()))
+        .unwrap();
+    assert_eq!(resolved, link);
+}

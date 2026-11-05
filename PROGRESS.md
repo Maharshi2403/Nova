@@ -381,3 +381,11 @@ Validation: Python 102 pytest passed with local provider fixtures; Ruff and stri
 mypy passed (32 source files); workspace Rust tests, formatting and Clippy pass.
 Offline provider CLI route/setup/removal and cross-provider selection tests pass.
 Hosted Windows CI and an authorized live paid smoke remain release gates.
+
+## H-065 — virtual environment interpreter path
+
+Release-bundle smoke exposed a real regression: resolving the venv `python`
+symlink selected the system interpreter, which could not import harness_ai. Nova
+now validates an absolute existing interpreter while preserving the venv entry path.
+A Unix symlink regression test and Clippy pass. The full package smoke is rerun
+before considering the installation complete.

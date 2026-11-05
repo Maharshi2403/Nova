@@ -300,8 +300,12 @@ impl ProviderStore {
             .or_else(|| bundle.filter(|p| p.is_file()))
             .or_else(|| source.is_file().then_some(source))
             .ok_or("intelligence Python not found; pass --python once")?;
-        std::fs::canonicalize(candidate)
-            .map_err(|_| "configured intelligence Python does not exist".into())
+        if !candidate.is_absolute() || !candidate.is_file() {
+            return Err("configured intelligence Python must be an existing absolute path".into());
+        }
+        // Keep the venv entry path: canonicalizing its symlink selects the system
+        // interpreter and drops the virtual environment's site-packages.
+        Ok(candidate)
     }
 }
 
