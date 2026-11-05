@@ -79,6 +79,9 @@ enum Command {
     Pause {
         run_id: String,
     },
+    Cancel {
+        run_id: String,
+    },
     Resume {
         run_id: String,
     },
@@ -212,6 +215,9 @@ fn execute(cli: Cli) -> Result<String, CliError> {
         )?,
         Command::Pause { run_id } => {
             client.request("POST", &format!("/v1/runs/{run_id}/pause"), None)?
+        }
+        Command::Cancel { run_id } => {
+            client.request("POST", &format!("/v1/runs/{run_id}/cancel"), None)?
         }
         Command::Resume { run_id } => {
             client.request("POST", &format!("/v1/runs/{run_id}/resume"), None)?

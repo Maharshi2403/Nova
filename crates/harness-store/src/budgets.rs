@@ -22,7 +22,18 @@ impl Store {
         lease: &LeaseRequest<'_>,
         budget: BudgetRequest,
     ) -> Result<(Task, Lease), StoreError> {
-        self.grant_lease_with_budget(run_id, task_id, revision, lease, Some(budget))
+        self.grant_lease_with_budget(run_id, task_id, revision, lease, Some(budget), None)
+            .await
+    }
+    pub async fn grant_dispatch_lease(
+        &self,
+        run: (&RunId, u64),
+        task: &TaskId,
+        revision: u64,
+        lease: &LeaseRequest<'_>,
+        budget: BudgetRequest,
+    ) -> Result<(Task, Lease), StoreError> {
+        self.grant_lease_with_budget(run.0, task, revision, lease, Some(budget), Some(run.1))
             .await
     }
 

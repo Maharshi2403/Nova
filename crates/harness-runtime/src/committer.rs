@@ -12,6 +12,8 @@ use crate::verifier::{VerificationError, Verifier};
 
 #[derive(Debug, thiserror::Error)]
 pub enum CommitError {
+    #[error("run was cancelled; verified changes are retained without committing")]
+    Cancelled,
     #[error("verification failed; no commit was created")]
     VerificationFailed,
     #[error("diff requires review before committing")]
@@ -90,6 +92,10 @@ impl<'a> TaskCommitter<'a> {
         let verification = self.verifier.verify(store, task, worktree).await?;
         if !verification.passed {
             return Err(CommitError::VerificationFailed);
+        }
+        use harness_store::repository::Repository;
+        if store.get_run(&task.run_id).await?.state == harness_core::domain::RunState::Cancelled {
+            return Err(CommitError::Cancelled);
         }
         let diff = self.diff_gate.check(task, worktree).await?;
         if diff.requires_review {

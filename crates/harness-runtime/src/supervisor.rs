@@ -190,7 +190,10 @@ async fn drive<B: ToolBroker>(
                     return Err(SuperviseError::BudgetExceeded("tool calls"));
                 }
                 tool_calls += 1;
-                let response = broker.handle(&request).await;
+                let response = tokio::select! {
+                    response = broker.handle(&request) => response,
+                    _ = wait_for_cancel(cancel) => return cancelled(worker).await,
+                };
                 let reply = session.tool_response(request_id, &response, now())?;
                 worker.send(&reply).await.map_err(SuperviseError::Worker)?;
             }
@@ -204,4 +207,15 @@ async fn cancelled(worker: &mut Worker) -> Result<Outcome, SuperviseError> {
     // Best effort: a worker that is already gone just makes this send fail.
     let _ = worker.send(&cancel_envelope()).await;
     Err(SuperviseError::Cancelled)
+}
+
+async fn wait_for_cancel(cancel: &mut watch::Receiver<bool>) {
+    loop {
+        if *cancel.borrow() {
+            return;
+        }
+        if cancel.changed().await.is_err() {
+            std::future::pending::<()>().await;
+        }
+    }
 }

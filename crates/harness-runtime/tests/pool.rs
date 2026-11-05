@@ -66,4 +66,33 @@ async fn concurrency_cap_respected_and_blocked_never_dispatched() {
         .unwrap(),
         0
     );
+    let snapshot = store.get_run(&run.id).await.unwrap();
+    store
+        .transition_run(&run.id, snapshot.revision, RunState::Paused, None)
+        .await
+        .unwrap();
+    let task = store.list_tasks(&run.id).await.unwrap().remove(0);
+    let task = store
+        .transition_task(&run.id, task.id(), task.revision, TaskState::Ready, None)
+        .await
+        .unwrap()
+        .task;
+    let request = harness_store::leases::LeaseRequest {
+        lease_id: "paused",
+        worker_id: "worker",
+        now: 3,
+        ttl_seconds: 60,
+    };
+    assert!(
+        store
+            .grant_dispatch_lease(
+                (&run.id, snapshot.revision),
+                task.id(),
+                task.revision,
+                &request,
+                budget
+            )
+            .await
+            .is_err()
+    );
 }

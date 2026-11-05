@@ -21,6 +21,7 @@ def main() -> None:
     parser.add_argument("--bin-dir", type=Path, default=Path("target/debug"))
     parser.add_argument("--tasks", type=int, default=3)
     parser.add_argument("--fault", action="store_true")
+    parser.add_argument("--cancel", action="store_true")
     args = parser.parse_args()
     assert 1 <= args.tasks <= 200
     suffix = ".exe" if os.name == "nt" else ""
@@ -56,7 +57,7 @@ def main() -> None:
             for n in range(args.tasks):
                 ident, path = f"task-{n:03}", f"output/{n:03}.txt"
                 code = f"from pathlib import Path; assert Path({path!r}).read_text().strip() == 'Mock task {ident}'"
-                if args.fault:
+                if args.fault or args.cancel:
                     code = "import time; time.sleep(3); " + code
                 command = [sys.executable, "-c", code]
                 commands.append(command)
@@ -72,6 +73,14 @@ def main() -> None:
             while True:
                 status = call("status", run["id"])
                 rows = call("task", run["id"])
+                if args.cancel and any(t["state"] == "verifying" for t in rows):
+                    call("cancel", run["id"])
+                    time.sleep(3.5)
+                    assert call("status", run["id"])["state"] == "cancelled"
+                    with sqlite3.connect((data / "harness.db").as_uri()+"?mode=ro", uri=True) as db:
+                        assert db.execute("SELECT COUNT(*) FROM git_artifacts").fetchone()[0] == 0
+                    print("PASS: cancellation during verification retained changes without a commit")
+                    return
                 if args.fault and any(t["state"] == "verifying" for t in rows):
                     daemon.kill()
                     daemon.wait(timeout=10)

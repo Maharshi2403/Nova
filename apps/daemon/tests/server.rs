@@ -32,6 +32,21 @@ async fn missing_auth_401() {
 }
 
 #[tokio::test]
+async fn hostile_browser_origin_denied_even_with_bearer() {
+    let response = router("test-token".into())
+        .oneshot(
+            Request::get("/v1/control")
+                .header(header::AUTHORIZATION, "Bearer test-token")
+                .header(header::ORIGIN, "https://hostile.example")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
 async fn healthz_minimal() {
     let response = router("test-token".into())
         .oneshot(

@@ -10,6 +10,32 @@ use tokio::sync::watch;
 const T: Duration = Duration::from_secs(30);
 
 #[tokio::test]
+async fn cancellation_interrupts_pending_broker_call() {
+    struct Hung;
+    impl ToolBroker for Hung {
+        async fn handle(&mut self, _: &ToolRequest) -> ToolResponse {
+            std::future::pending().await
+        }
+    }
+    let mut worker = Worker::spawn(&scripted("write_frame(out, frame('tool_request', {'tool':'repo.read','arguments':{'path':'README.md'}}))\nread_frame(sys.stdin.buffer)")).unwrap();
+    worker.handshake(T).await.unwrap();
+    let mut session = AssignmentSession::new("run-1", "task-1", 1, 3);
+    let (tx, rx) = watch::channel(false);
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        tx.send(true).unwrap();
+    });
+    let result = tokio::time::timeout(
+        Duration::from_secs(2),
+        supervise(&mut worker, &mut session, &start(), limits(), &mut Hung, rx),
+    )
+    .await
+    .unwrap();
+    assert!(matches!(result, Err(SuperviseError::Cancelled)));
+    worker.shutdown(Duration::from_millis(100)).await;
+}
+
+#[tokio::test]
 async fn closed_cancellation_channel_does_not_starve_worker() {
     let (tx, rx) = watch::channel(false);
     drop(tx);

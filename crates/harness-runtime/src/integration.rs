@@ -15,6 +15,8 @@ use crate::git::{RepoError, git, simplify};
 
 #[derive(Debug, thiserror::Error)]
 pub enum IntegrationError {
+    #[error("run was cancelled; integration is not permitted")]
+    RunCancelled,
     #[error("task has no verified task commit")]
     MissingTaskCommit,
     #[error("integration merge conflicted; task branch is retained: {0}")]
@@ -129,6 +131,9 @@ impl Integrator {
         task: &Task,
     ) -> Result<IntegrationOutcome, IntegrationError> {
         let _guard = self.lock.lock().await;
+        if store.get_run(&task.run_id).await?.state == harness_core::domain::RunState::Cancelled {
+            return Err(IntegrationError::RunCancelled);
+        }
         let current = store.get_task(&task.run_id, task.id()).await?;
         if !matches!(
             current.state,
@@ -273,6 +278,9 @@ impl Integrator {
         replayed: bool,
     ) -> Result<IntegrationOutcome, IntegrationError> {
         let current = store.get_task(&task.run_id, task.id()).await?;
+        if store.get_run(&task.run_id).await?.state == harness_core::domain::RunState::Cancelled {
+            return Err(IntegrationError::RunCancelled);
+        }
         match current.state {
             TaskState::Reviewing => {
                 let integrating = store

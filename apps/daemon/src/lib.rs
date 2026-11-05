@@ -237,9 +237,27 @@ async fn require_bearer(
     request: Request<Body>,
     next: axum::middleware::Next,
 ) -> Response {
+    if request.headers().contains_key(header::ORIGIN)
+        || request
+            .headers()
+            .get("sec-fetch-site")
+            .is_some_and(|v| v != "none" && v != "same-origin")
+    {
+        return StatusCode::FORBIDDEN.into_response();
+    }
     let expected = ["Bearer", &token].join(" ");
     match request.headers().get(header::AUTHORIZATION) {
-        Some(value) if value.as_bytes() == expected.as_bytes() => next.run(request).await,
+        Some(value)
+            if value.as_bytes().len() == expected.len()
+                && value
+                    .as_bytes()
+                    .iter()
+                    .zip(expected.as_bytes())
+                    .fold(0u8, |diff, (a, b)| diff | (a ^ b))
+                    == 0 =>
+        {
+            next.run(request).await
+        }
         _ => StatusCode::UNAUTHORIZED.into_response(),
     }
 }
@@ -576,7 +594,35 @@ async fn cancel_run(
     State(state): State<ApiState>,
     RoutePath(run_id): RoutePath<String>,
 ) -> ApiResult<RunResponse> {
-    transition_run(&state.store, run_id, RunState::Cancelled).await
+    let run = transition_run_internal(&state.store, run_id, RunState::Cancelled).await?;
+    for task in state.store.list_tasks(&run.id).await.map_err(|_| {
+        api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "cancel_failed",
+            "could not enumerate tasks",
+        )
+    })? {
+        if harness_core::state::is_allowed(task.state, harness_core::domain::TaskState::Cancelled) {
+            state
+                .store
+                .transition_task(
+                    &run.id,
+                    task.id(),
+                    task.revision,
+                    harness_core::domain::TaskState::Cancelled,
+                    None,
+                )
+                .await
+                .map_err(|_| {
+                    api_error(
+                        StatusCode::CONFLICT,
+                        "cancel_race",
+                        "task moved during cancellation; inspect state",
+                    )
+                })?;
+        }
+    }
+    Ok((StatusCode::OK, Json(run_response(run))))
 }
 
 async fn list_tasks(

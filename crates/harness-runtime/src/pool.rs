@@ -73,7 +73,8 @@ impl WorkerPool {
     {
         let ready = tick(store, run, now).await?;
         let tasks = store.list_tasks(run).await?;
-        let project = store.get_run(run).await?.project_id.to_string();
+        let run_record = store.get_run(run).await?;
+        let project = run_record.project_id.to_string();
         let mut count = 0;
         for id in rank(&tasks, &ready) {
             if self.active() >= self.capacity {
@@ -94,7 +95,13 @@ impl WorkerPool {
                 ttl_seconds: task.spec.limits.timeout_seconds.saturating_add(300),
             };
             let (leased, _) = match store
-                .grant_budgeted_lease(run, &id, task.revision, &req, budget(task))
+                .grant_dispatch_lease(
+                    (run, run_record.revision),
+                    &id,
+                    task.revision,
+                    &req,
+                    budget(task),
+                )
                 .await
             {
                 Ok(v) => v,

@@ -77,17 +77,24 @@ pub async fn git(cwd: &Path, args: &[&str]) -> Result<String, RepoError> {
     let mut cmd = Command::new("git");
     // `core.fsmonitor=false` stops a repository's config from launching helper programs
     // during read-only commands.
-    cmd.args(["-c", "core.fsmonitor=false", "-c", "core.quotepath=off"])
-        .args(args)
-        .current_dir(cwd)
-        .env_clear()
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GIT_OPTIONAL_LOCKS", "0")
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
+    cmd.args([
+        "-c",
+        "core.fsmonitor=false",
+        "-c",
+        "core.quotepath=off",
+        "-c",
+        "core.hooksPath=",
+    ])
+    .args(args)
+    .current_dir(cwd)
+    .env_clear()
+    .env("GIT_TERMINAL_PROMPT", "0")
+    .env("GIT_OPTIONAL_LOCKS", "0")
+    .env("GIT_CONFIG_NOSYSTEM", "1")
+    .stdin(Stdio::null())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .kill_on_drop(true);
     for name in [
         "PATH",
         "Path",

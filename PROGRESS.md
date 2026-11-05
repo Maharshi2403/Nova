@@ -1,6 +1,6 @@
 # Implementation progress
 
-Latest completed ticket: H-043c — Rust-authorized live execution backfill.
+Latest locally verified implementation: H-058 — release matrix and regressions.
 Prior implementation: H-001..H-044 appear in Git history; their original platform
 evidence has not been independently audited. Current stage: G5.
 
@@ -215,5 +215,21 @@ inventory for approvals/trust/provider calls). Runtime live tests (3) include re
 IPC with an empty key, proving refusal before network; engine/pool/usage tests pass.
 Workspace Clippy/format/diff PASS. Python pytest PASS (84), Ruff PASS (30 files),
 mypy PASS (29 files). Next: H-058 cross-platform release checks and regressions.
+
+## H-058 local verification (remote gate pending)
+
+CI now uses locked dependencies, offline runtime tests, Windows/macOS/Linux jobs,
+100-task CLI evidence, kill/restart and cancel-during-verification fixtures, and
+binary artifacts. No credentials/live-provider enablement exist in CI. Added
+hostile-origin denial, atomic run-revision dispatch gate, cancellation while a
+broker is pending, cancellation checks before commit/completion, and disabled
+repository hooks for internal Git operations.
+
+`cargo test --locked --offline --workspace`, workspace all-target Clippy, formatting,
+`cargo build --locked --offline --workspace`: PASS. Current 100-task demo, forced
+restart demo and cancellation demo all PASS. Workflow parsed with Ruby YAML.
+Windows/macOS hosted CI has NOT been run from this environment; H-058's full gate
+and G4..G7 cross-platform sign-off remain pending. H-059/H-060 documentation and
+packaging are prepared locally without claiming a release or skipping that gate.
 The original three untracked handoff documents are intentionally excluded from
 the feature commit and left unchanged.

@@ -11,9 +11,12 @@ env:
   CARGO_TERM_COLOR: always
   # Offline checks only: no provider credentials are configured in CI.
   HARNESS_PROVIDER: mock
+  HARNESS_ENABLE_LIVE: "0"
+  OPENAI_API_KEY: ""
 
 jobs:
   checks:
+    timeout-minutes: 30
     name: checks (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -34,29 +37,55 @@ jobs:
           enable-cache: true
           cache-dependency-glob: intelligence/uv.lock
 
+      - name: Fetch locked Rust dependencies
+        run: cargo fetch --locked
+
       - name: Rust format
         run: cargo fmt --all --check
 
       - name: Rust clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --locked --offline --workspace --all-targets -- -D warnings
 
       - name: Python sync
         working-directory: intelligence
         run: uv sync --locked
 
       - name: Rust tests
-        run: cargo test --workspace
+        run: cargo test --locked --offline --workspace
+
+      - name: Build CLI and daemon
+        run: cargo build --locked --offline --workspace
+
+      - name: Real offline CLI workflow (100 tasks)
+        run: uv run --locked --offline --project intelligence python scripts/offline_demo.py --tasks 100
+
+      - name: Daemon kill and restart
+        run: uv run --locked --offline --project intelligence python scripts/offline_demo.py --tasks 1 --fault
+
+      - name: Cancel during verification
+        run: uv run --locked --offline --project intelligence python scripts/offline_demo.py --tasks 1 --cancel
 
       - name: Python lint
         working-directory: intelligence
         run: |
-          uv run --locked ruff check .
-          uv run --locked ruff format --check .
+          uv run --locked --offline ruff check .
+          uv run --locked --offline ruff format --check .
 
       - name: Python types
         working-directory: intelligence
-        run: uv run --locked mypy
+        run: uv run --locked --offline mypy
 
       - name: Python tests
         working-directory: intelligence
-        run: uv run --locked pytest
+        run: uv run --locked --offline pytest
+
+      - name: Upload inspected local binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-debug-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            target/debug/harness
+            target/debug/harnessd
+            target/debug/harness.exe
+            target/debug/harnessd.exe
+          if-no-files-found: error

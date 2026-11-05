@@ -89,7 +89,7 @@ impl LeaseRepository for Store {
         expected_revision: u64,
         req: &LeaseRequest<'_>,
     ) -> Result<(Task, Lease), StoreError> {
-        self.grant_lease_with_budget(run_id, task_id, expected_revision, req, None)
+        self.grant_lease_with_budget(run_id, task_id, expected_revision, req, None, None)
             .await
     }
 
@@ -225,6 +225,7 @@ impl Store {
         expected_revision: u64,
         req: &LeaseRequest<'_>,
         budget: Option<crate::budgets::BudgetRequest>,
+        run_revision: Option<u64>,
     ) -> Result<(Task, Lease), StoreError> {
         let current = self.get_task(run_id, task_id).await?;
         if current.revision != expected_revision {
@@ -255,6 +256,16 @@ impl Store {
                 expected: expected_revision,
                 actual,
             });
+        }
+        if let Some(revision) = run_revision {
+            let (state, actual): (String, i64) =
+                sqlx::query_as("SELECT state,revision FROM runs WHERE id=?")
+                    .bind(run_id.as_str())
+                    .fetch_one(&mut *tx)
+                    .await?;
+            if state != "running" || actual != to_i64(revision)? {
+                return Err(StoreError::BudgetDenied("run dispatch gate changed"));
+            }
         }
         let inserted = sqlx::query(
             "INSERT INTO leases (id, run_id, task_id, worker_id, attempt, granted_at, expires_at) \
