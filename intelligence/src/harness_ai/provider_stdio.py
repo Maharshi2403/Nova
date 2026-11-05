@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, cast
 
 from harness_ai.assignment import ToolResponse, _envelope
 from harness_ai.framing import read_frame, write_frame
@@ -16,6 +16,7 @@ from harness_ai.providers.base import (
     PermanentProviderError,
     TransientProviderError,
 )
+from harness_ai.providers.multi import JSONProvider, Kind
 from harness_ai.providers.openai import OpenAIProvider
 
 
@@ -60,16 +61,35 @@ def serve_provider(stdin: BinaryIO, stdout: BinaryIO) -> int:
     if (
         request is None
         or request.kind != "tool_request"
-        or request.payload.get("tool") != "model.complete"
+        or request.payload.get("tool") not in ("model.complete", "models.list")
     ):
         return 2
     try:
-        provider = OpenAIProvider(
-            enabled=os.environ.get("HARNESS_ENABLE_LIVE") == "1",
-            api_key=os.environ.get("OPENAI_API_KEY", ""),
+        kind = os.environ.get("NOVA_PROVIDER_KIND", "openai")
+        name = os.environ.get("NOVA_PROVIDER_NAME", kind)
+        base = os.environ.get(
+            "NOVA_PROVIDER_BASE_URL",
+            "https://api.openai.com/v1" if kind == "openai" else "https://api.anthropic.com/v1",
         )
-        result = asyncio.run(provider.complete(**request.payload["arguments"]))
-        response = ToolResponse(ok=True, result=result.model_dump())
+        key = os.environ.get("NOVA_PROVIDER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+        enabled = os.environ.get("HARNESS_ENABLE_LIVE") == "1"
+        if request.payload["tool"] == "models.list":
+            catalog = JSONProvider(
+                kind=cast(Kind, kind), enabled=enabled, api_key=key, base_url=base
+            )
+            response = ToolResponse(ok=True, result=asyncio.run(catalog.discover()))
+        else:
+            provider = (
+                OpenAIProvider(enabled=enabled, api_key=key)
+                if kind == "openai"
+                else JSONProvider(
+                    kind=cast(Kind, kind), enabled=enabled, api_key=key, base_url=base
+                )
+            )
+            result = asyncio.run(provider.complete(**request.payload["arguments"]))
+            response = ToolResponse(
+                ok=True, result=result.model_copy(update={"provider": name}).model_dump()
+            )
     except TransientProviderError:
         response = ToolResponse(ok=False, error="transient_provider")
     except (PermanentProviderError, ValueError, TypeError, KeyError):

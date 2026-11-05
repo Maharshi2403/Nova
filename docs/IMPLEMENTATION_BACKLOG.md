@@ -47,3 +47,16 @@ User-requested follow-up: canonical `nova` binary, bare-command/start launcher,
 authenticated attach, safe idle shutdown, user-local PATH installation, and lifecycle
 regression tests. Keep `harness` compatibility and existing state paths accessible.
 Do not start coding agents, approve plans, or enable a paid provider on startup.
+
+## Multi-provider follow-up (user authorized)
+
+- H-062: Anthropic Messages and OpenAI-compatible Chat Completions adapters,
+  bounded model discovery, strict response validation and offline HTTP fixtures.
+- H-063: saved provider profiles and native credential-vault setup, hidden key
+  prompts, model catalog and CLI provider/model management. No keys in JSON/logs.
+- H-064: task use-case routing across configured providers, saved defaults and
+  overrides, integration into budgeted execution, docs, native install and smoke.
+
+Every provider attempt remains Rust-authorized; unsupported/unpriced models must
+be explicit rather than silently assigned zero cost. No paid test calls. Arbitrary
+protocols need adapters; compatible endpoints can use the generic adapter.

@@ -332,5 +332,20 @@ Verification actually run:
 Original handoff files and unrelated .DS_Store are untouched. No shell-profile edits,
 push, tag, paid calls or desktop UI were introduced. Windows detached-service
 behavior remains subject to the configured hosted CI checks.
+
+## H-062 — additional provider protocols
+
+Added Anthropic Messages and explicitly configured OpenAI-compatible Chat Completions
+adapters, normalized cached/input/output usage, bounded catalog discovery/pagination,
+HTTPS/loopback URL checks and disabled redirects/proxies. Anthropic schema constraints
+are moved to descriptions for transport and still validated locally against the
+original schema. Provider helper selection remains credential-scoped and JSONL-only.
+Official OpenAI, Claude and OpenRouter contracts were checked before implementation.
+No model-generation calls were made.
+
+Python pytest: PASS (101), Ruff: PASS, strict mypy: PASS (32 files). New offline
+fixtures cover both request formats, cache accounting, missing usage, authentication/
+transient errors, schema constraints, pagination, unsafe URLs, redirects and size caps.
+Next: H-063 saved profiles/native credential setup and model management.
 The original three untracked handoff documents are intentionally excluded from
 the feature commit and left unchanged.
