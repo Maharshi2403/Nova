@@ -4,6 +4,7 @@ pub mod broker;
 pub mod committer;
 pub mod diff_gate;
 pub mod git;
+pub mod integration;
 pub mod priority;
 pub mod readiness;
 pub mod supervisor;

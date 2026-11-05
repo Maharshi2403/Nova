@@ -64,6 +64,7 @@ impl<'a> TaskCommitter<'a> {
                     run_id: task.run_id.clone(),
                     task_id: task.id().clone(),
                     task_commit_sha: sha.clone(),
+                    integration_commit_sha: None,
                     diff_paths: Vec::new(),
                 })
                 .await?;
@@ -114,6 +115,7 @@ impl<'a> TaskCommitter<'a> {
                 run_id: task.run_id.clone(),
                 task_id: task.id().clone(),
                 task_commit_sha: sha.clone(),
+                integration_commit_sha: None,
                 diff_paths: diff.changed_paths,
             })
             .await?;
