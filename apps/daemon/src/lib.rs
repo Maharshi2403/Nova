@@ -2,6 +2,8 @@
 
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use axum::body::Body;
 use axum::extract::{Path as RoutePath, Query, State};
@@ -96,6 +98,7 @@ impl Daemon {
 #[derive(Clone)]
 struct ApiState {
     store: Store,
+    event_waiters: Arc<tokio::sync::Semaphore>,
 }
 
 pub fn router(token: String) -> Router {
@@ -129,7 +132,10 @@ pub fn api_router(token: String, store: Store) -> Router {
             .route("/events", get(list_events))
             .route("/usage", get(list_usage))
             .route("/approvals/{approval_id}/decision", post(decide_approval))
-            .with_state(ApiState { store })
+            .with_state(ApiState {
+                store,
+                event_waiters: Arc::new(tokio::sync::Semaphore::new(64)),
+            })
             .layer(axum::middleware::from_fn_with_state(token, require_bearer)),
     )
 }
@@ -211,6 +217,7 @@ struct EventsQuery {
     run_id: String,
     after: Option<i64>,
     limit: Option<u32>,
+    wait_seconds: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -616,21 +623,50 @@ async fn list_events(
     Query(query): Query<EventsQuery>,
 ) -> ApiResult<Vec<EventResponse>> {
     let run = load_run(&state.store, query.run_id).await?;
-    let events = state
-        .store
-        .list_events(
-            &run.id,
-            query.after.unwrap_or(0),
-            query.limit.unwrap_or(100),
-        )
-        .await
-        .map_err(|error| {
+    let wait = query.wait_seconds.unwrap_or(0);
+    if wait > 25
+        || query.after.is_some_and(|v| v < 0)
+        || query.limit.is_some_and(|v| v == 0 || v > 1000)
+    {
+        return Err(api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_cursor",
+            "limit must be 1..1000, cursor nonnegative and wait at most 25 seconds",
+        ));
+    }
+    let _permit = if wait > 0 {
+        Some(state.event_waiters.try_acquire().map_err(|_| {
             api_error(
-                StatusCode::UNPROCESSABLE_ENTITY,
-                "invalid_cursor",
-                error.to_string(),
+                StatusCode::TOO_MANY_REQUESTS,
+                "event_capacity",
+                "too many event subscribers",
             )
-        })?;
+        })?)
+    } else {
+        None
+    };
+    let deadline = Instant::now() + Duration::from_secs(u64::from(wait));
+    let events = loop {
+        let events = state
+            .store
+            .list_events(
+                &run.id,
+                query.after.unwrap_or(0),
+                query.limit.unwrap_or(100),
+            )
+            .await
+            .map_err(|error| {
+                api_error(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "invalid_cursor",
+                    error.to_string(),
+                )
+            })?;
+        if !events.is_empty() || Instant::now() >= deadline {
+            break events;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
     Ok((
         StatusCode::OK,
         Json(

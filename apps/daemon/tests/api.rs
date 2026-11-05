@@ -13,6 +13,83 @@ use tower::ServiceExt;
 
 const TOKEN: &str = "test-token";
 
+#[tokio::test]
+async fn subscriber_resumes_after_disconnect_without_duplicates() {
+    let (_data, store, _repo) = fixture().await;
+    let p = Project::new(ProjectId::new("p").unwrap(), "fixture", "/repo").unwrap();
+    store.create_project(&p).await.unwrap();
+    let run = Run::new(RunId::new("r").unwrap(), p.id);
+    store.create_run(&run).await.unwrap();
+    let cursor = store
+        .list_events(&run.id, 0, 100)
+        .await
+        .unwrap()
+        .last()
+        .map_or(0, |e| e.sequence);
+    let write = store.clone();
+    let producer = tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        write
+            .transition_run(&run.id, 0, harness_core::domain::RunState::Cancelled, None)
+            .await
+            .unwrap();
+    });
+    let app = api_router(TOKEN.into(), store);
+    let response = app
+        .clone()
+        .oneshot(
+            auth(Request::get(format!(
+                "/v1/events?run_id=r&after={cursor}&wait_seconds=1"
+            )))
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let events: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 10000).await.unwrap()).unwrap();
+    assert_eq!(events.as_array().unwrap().len(), 1);
+    let next = events[0]["sequence"].as_i64().unwrap();
+    assert!(next > cursor);
+    let response = app
+        .oneshot(
+            auth(Request::get(format!("/v1/events?run_id=r&after={next}")))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        to_bytes(response.into_body(), 10000)
+            .await
+            .unwrap()
+            .as_ref(),
+        b"[]"
+    );
+    producer.await.unwrap();
+}
+
+#[tokio::test]
+async fn event_long_poll_rejects_unbounded_wait() {
+    let (_data, store, _repo) = fixture().await;
+    let p = Project::new(ProjectId::new("p").unwrap(), "fixture", "/repo").unwrap();
+    store.create_project(&p).await.unwrap();
+    store
+        .create_run(&Run::new(RunId::new("r").unwrap(), p.id))
+        .await
+        .unwrap();
+    let response = api_router(TOKEN.into(), store)
+        .oneshot(
+            auth(Request::get("/v1/events?run_id=r&wait_seconds=26"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
 fn auth(request: axum::http::request::Builder) -> axum::http::request::Builder {
     request.header(header::AUTHORIZATION, ["Bearer", TOKEN].join(" "))
 }

@@ -1,6 +1,6 @@
 # Implementation progress
 
-Latest completed ticket: H-051 — cancellation and process cleanup.
+Latest completed ticket: H-052 — bounded replayable events.
 Prior implementation: H-001..H-044 appear in Git history; their original platform
 evidence has not been independently audited. Current stage: G5.
 
@@ -91,6 +91,14 @@ protocol reads. Worker (7), pool (1), supervisor (12) tests PASS; workspace all-
 Clippy and formatting PASS. Windows tree termination requires Windows CI; no Job
 Object guarantee is claimed. Uncommitted worktrees are preserved.
 
-Next unblocked ticket: H-052 — replayable bounded progress events.
+## H-052 verification
+
+Authenticated `/v1/events` accepts `wait_seconds=0..25`, with at most 64 concurrent
+waiters, 1000 events per response and durable sequence cursors. Disconnect drops
+the permit. There is no unbounded per-client event buffer. Daemon API tests PASS
+(11), including delayed production, reconnect without duplicates and invalid waits.
+Workspace all-target Clippy, formatting and diff checks PASS.
+
+Next: H-053a execution wiring, then H-053b fault/load evidence (see implementation backlog).
 The original three untracked handoff documents are intentionally excluded from
 the feature commit and left unchanged.
