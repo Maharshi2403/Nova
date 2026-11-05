@@ -91,9 +91,32 @@ impl DiffGate {
         task: &Task,
         worktree: &Path,
     ) -> Result<DiffGateResult, DiffGateError> {
+        self.check_against(task, worktree, "HEAD").await
+    }
+
+    pub async fn check_against(
+        &self,
+        task: &Task,
+        worktree: &Path,
+        base: &str,
+    ) -> Result<DiffGateResult, DiffGateError> {
         let policy =
             PathPolicy::new(worktree).map_err(|e| DiffGateError::InvalidScope(e.to_string()))?;
-        let changed_paths = changed_paths(worktree).await?;
+        let mut changed_paths = changed_paths(worktree).await?;
+        if base != "HEAD" {
+            changed_paths.extend(
+                git(
+                    worktree,
+                    &["diff", "--name-only", "-z", "--no-ext-diff", base, "--"],
+                )
+                .await?
+                .split('\0')
+                .filter(|p| !p.is_empty())
+                .map(str::to_owned),
+            );
+            changed_paths.sort();
+            changed_paths.dedup();
+        }
         let mut changed_bytes: u64 = 0;
         for path in &changed_paths {
             let relative = policy
@@ -129,7 +152,7 @@ impl DiffGate {
             "diff".to_owned(),
             "--check".to_owned(),
             "--no-ext-diff".to_owned(),
-            "HEAD".to_owned(),
+            base.to_owned(),
         ];
         let output = run_command(
             worktree,

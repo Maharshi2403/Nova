@@ -58,14 +58,27 @@ impl<'a> TaskCommitter<'a> {
             });
         }
         let marker = format!("Harness-Task: {}/{}", task.run_id, task.id());
-        if let Some(sha) = existing_commit(worktree, &marker).await? {
+        let attempt_marker = format!("Harness-Attempt: {}", task.attempt);
+        if let Some(sha) = existing_commit(worktree, &marker, &attempt_marker).await? {
+            // Crash after Git commit but before SQLite acknowledgement. A trailer is
+            // not verification evidence: rerun checks and inspect the committed diff.
+            let diff = self
+                .diff_gate
+                .check_against(task, worktree, "HEAD^")
+                .await?;
+            if diff.requires_review {
+                return Err(CommitError::ReviewRequired);
+            }
+            if !self.verifier.verify(store, task, worktree).await?.passed {
+                return Err(CommitError::VerificationFailed);
+            }
             store
                 .record_task_commit(&TaskCommitRecord {
                     run_id: task.run_id.clone(),
                     task_id: task.id().clone(),
                     task_commit_sha: sha.clone(),
                     integration_commit_sha: None,
-                    diff_paths: Vec::new(),
+                    diff_paths: diff.changed_paths,
                 })
                 .await?;
             return Ok(CommitOutcome {
@@ -103,6 +116,8 @@ impl<'a> TaskCommitter<'a> {
                 &message,
                 "-m",
                 &marker,
+                "-m",
+                &attempt_marker,
             ],
         )
         .await?;
@@ -126,24 +141,19 @@ impl<'a> TaskCommitter<'a> {
     }
 }
 
-async fn existing_commit(worktree: &Path, marker: &str) -> Result<Option<String>, RepoError> {
-    let output = git(
-        worktree,
-        &[
-            "log",
-            "--format=%H",
-            "--fixed-strings",
-            "--grep",
-            marker,
-            "-n",
-            "1",
-            "HEAD",
-        ],
-    )
-    .await?;
-    Ok(output
-        .lines()
-        .next()
-        .filter(|sha| sha.len() == 40)
-        .map(str::to_owned))
+async fn existing_commit(
+    worktree: &Path,
+    marker: &str,
+    attempt: &str,
+) -> Result<Option<String>, RepoError> {
+    let body = git(worktree, &["show", "-s", "--format=%B", "HEAD"]).await?;
+    if body.lines().any(|line| line == marker) && body.lines().any(|line| line == attempt) {
+        return Ok(Some(
+            git(worktree, &["rev-parse", "HEAD"])
+                .await?
+                .trim()
+                .to_owned(),
+        ));
+    }
+    Ok(None)
 }

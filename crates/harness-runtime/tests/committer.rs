@@ -136,3 +136,56 @@ async fn retry_does_not_double_commit() {
         "2"
     );
 }
+
+#[tokio::test]
+async fn kill_restart_no_duplicate_commit() {
+    use harness_store::git_artifacts::GitArtifactRepository;
+    let f = fixture(vec!["git".into(), "--version".into()]).await;
+    std::fs::write(f.repo.join("allowed.txt"), "recovered change\n").unwrap();
+    git(&f.repo, &["add", "allowed.txt"]).await.unwrap();
+    git(
+        &f.repo,
+        &[
+            "commit",
+            "-qm",
+            "interrupted",
+            "-m",
+            "Harness-Task: run-1/task-1",
+            "-m",
+            "Harness-Attempt: 1",
+        ],
+    )
+    .await
+    .unwrap();
+    let verifier = Verifier::new(vec![vec!["git".into(), "--version".into()]]);
+    let gate = DiffGate::new(&f.task.spec.candidate_paths).unwrap();
+    let result = TaskCommitter::new(&verifier, &gate)
+        .commit(&f.store, &f.task, &f.repo)
+        .await
+        .unwrap();
+    assert!(result.replayed);
+    assert_eq!(
+        git(&f.repo, &["rev-list", "--count", "HEAD"])
+            .await
+            .unwrap()
+            .trim(),
+        "2"
+    );
+    assert_eq!(
+        f.store
+            .get_task_commit(&f.task.run_id, f.task.id())
+            .await
+            .unwrap()
+            .unwrap()
+            .diff_paths,
+        vec!["allowed.txt"]
+    );
+    assert_eq!(
+        f.store
+            .list_test_results(&f.task.run_id, f.task.id())
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+}

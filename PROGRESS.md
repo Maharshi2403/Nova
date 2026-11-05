@@ -1,6 +1,6 @@
 # Implementation progress
 
-Latest completed ticket: H-049 — shared serialized integration.
+Latest completed ticket: H-050 — restart reconciliation.
 Prior implementation: H-001..H-044 appear in Git history; their original platform
 evidence has not been independently audited. Current stage: G5.
 
@@ -71,6 +71,16 @@ depends on bounded Git log output. No force, reset, user checkout changes, or pu
 `cargo test --offline -p harness-runtime --test integration`: PASS (4 tests, including
 two concurrent instances); runtime all-target Clippy, formatting and diff checks PASS.
 
-Next unblocked ticket: H-050 — restart reconciliation.
+## H-050 verification
+
+Startup reconciles expired leases without deleting worktrees or trusting arbitrary
+PIDs. Ambiguous attempts are blocked. Crash-after-commit recovery recognizes exact
+task/attempt trailers at HEAD, rechecks committed paths and reruns acceptance before
+recording the existing SHA. No second commit is created. Tests: runtime `committer`
+(3), `diff_gate` (3), `recovery` (1) PASS; workspace all-target Clippy and format PASS.
+Recovery intentionally requires inspection of ambiguous/orphan attempts; it does
+not kill PIDs that may have been reused or silently replay side effects.
+
+Next unblocked ticket: H-051 — cancellation and process cleanup.
 The original three untracked handoff documents are intentionally excluded from
 the feature commit and left unchanged.

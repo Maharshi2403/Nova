@@ -62,6 +62,9 @@ pub async fn start(data_dir: impl AsRef<Path>, bind: SocketAddr) -> Result<Daemo
     let store = Store::open(data_dir.join("harness.db"))
         .await
         .map_err(DaemonError::Store)?;
+    harness_runtime::recovery::reconcile(&store, unix_seconds())
+        .await
+        .map_err(DaemonError::Store)?;
     let listener = tokio::net::TcpListener::bind(bind)
         .await
         .map_err(DaemonError::Bind)?;
