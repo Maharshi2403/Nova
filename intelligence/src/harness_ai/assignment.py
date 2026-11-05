@@ -119,6 +119,8 @@ def run_mock_assignment(start: Envelope, stdin: BinaryIO, stdout: BinaryIO) -> N
     reply = read_frame(stdin)
     if reply is None:
         raise AssignmentError("stream closed while waiting for tool_response")
+    if reply.kind == "cancel":
+        return
     if reply.kind != "tool_response" or reply.correlation_id != str(request.message_id):
         raise AssignmentError("tool_response does not match the outstanding request")
     response = ToolResponse.model_validate(reply.payload)

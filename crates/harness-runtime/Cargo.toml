@@ -8,9 +8,10 @@ publish.workspace = true
 
 [dependencies]
 harness-core = { path = "../harness-core" }
+serde_json = "1"
 thiserror = "2"
 time = { version = "0.3", features = ["formatting"] }
-tokio = { version = "1", features = ["io-util", "process", "rt", "time", "macros"] }
+tokio = { version = "1", features = ["io-util", "process", "rt", "time", "macros", "sync"] }
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
