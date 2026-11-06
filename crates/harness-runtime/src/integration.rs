@@ -184,7 +184,10 @@ impl Integrator {
                 DEFAULT_COMMAND_TIMEOUT,
                 MAX_COMMAND_OUTPUT_BYTES,
             )
-            .await?;
+            .await;
+            // The worktree is clean after the merge, so anything untracked came from checks.
+            crate::diff_gate::remove_check_artifacts(&self.worktree_path, &[]).await?;
+            let output = output?;
             if output.timed_out || output.exit_code != Some(0) {
                 let detail = if output.timed_out {
                     "timed out".to_owned()

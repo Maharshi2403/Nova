@@ -6,7 +6,7 @@ use harness_core::domain::Task;
 use harness_store::Store;
 use harness_store::git_artifacts::{GitArtifactRepository, TaskCommitRecord};
 
-use crate::diff_gate::{DiffGate, DiffGateError};
+use crate::diff_gate::{DiffGate, DiffGateError, remove_check_artifacts, untracked_paths};
 use crate::git::{RepoError, git};
 use crate::verifier::{VerificationError, Verifier};
 
@@ -89,7 +89,10 @@ impl<'a> TaskCommitter<'a> {
             });
         }
 
-        let verification = self.verifier.verify(store, task, worktree).await?;
+        let before = untracked_paths(worktree).await?;
+        let verification = self.verifier.verify(store, task, worktree).await;
+        remove_check_artifacts(worktree, &before).await?;
+        let verification = verification?;
         if !verification.passed {
             return Err(CommitError::VerificationFailed);
         }

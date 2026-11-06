@@ -189,6 +189,45 @@ impl DiffGate {
     }
 }
 
+/// Untracked files (not ignored) currently present in `worktree`, sorted.
+pub async fn untracked_paths(worktree: &Path) -> Result<Vec<String>, RepoError> {
+    let status = git(
+        worktree,
+        &[
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--no-renames",
+            "--untracked-files=all",
+        ],
+    )
+    .await?;
+    let mut paths: Vec<String> = status
+        .split('\0')
+        .filter_map(|entry| entry.strip_prefix("?? "))
+        .filter(|path| !path.is_empty())
+        .map(str::to_owned)
+        .collect();
+    paths.sort_unstable();
+    Ok(paths)
+}
+
+/// Remove untracked files that appeared after `before` was captured. Checks are evidence,
+/// not task output: caches such as `__pycache__` must not reach the diff gate or commit.
+pub async fn remove_check_artifacts(worktree: &Path, before: &[String]) -> Result<(), RepoError> {
+    let created: Vec<String> = untracked_paths(worktree)
+        .await?
+        .into_iter()
+        .filter(|p| before.binary_search(p).is_err())
+        .collect();
+    for batch in created.chunks(256) {
+        let mut args = vec!["clean", "-f", "-q", "--"];
+        args.extend(batch.iter().map(String::as_str));
+        git(worktree, &args).await?;
+    }
+    Ok(())
+}
+
 async fn changed_paths(worktree: &Path) -> Result<Vec<String>, RepoError> {
     let status = git(
         worktree,

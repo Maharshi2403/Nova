@@ -29,4 +29,4 @@ keyring = { version = "=3.6.3", features = ["windows-native"] }
 
 [dev-dependencies]
 tempfile = "3"
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
