@@ -23,7 +23,7 @@ capacity. Execution 202 means accepted, not verified completion.
 | POST `/v1/goals` | `{project_id,goal}` creates a run; the main agent plans subtasks in the background (202) |
 | GET `/v1/goals/{run}` | Planning status: `planning`, `proposed` (model, subtasks, tokens, cost) or `failed` (reason) |
 | POST `/v1/plans` | `{run_id,plan}` validates schema/DAG and persists version |
-| GET `/v1/plans/{run}/{version}` | Inspect proposal/approval |
+| GET `/v1/plans/{run}/{version}` | Inspect proposal/approval; `requires_attention` lists task IDs whose acceptance uses `make`, `npm`, `pnpm` or `yarn` scripts/targets |
 | POST `/v1/plans/{run}/{version}/approve` | Approve version; materialize tasks |
 | POST `/v1/runs/{run}/execute` | `{allowed_test_commands,concurrency,live:false,committed_snapshot:false,run_cap_microdollars:null,daily_cap_microdollars:null}`. Interpreter and live registry come from daemon settings; optional request caps can only lower saved ceilings. Unknown fields, including `python` and `model_config`, return 422. |
 | POST `/v1/runs/{run}/pause` | Prevent new leases; assigned work continues |

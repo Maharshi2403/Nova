@@ -291,7 +291,9 @@ struct Dashboard: View {
         }
       } message: {
         Text(
-          "Review task scope, acceptance commands and budgets in Details first. Approval does not start workers."
+          model.plan?.requires_attention?.isEmpty == false
+            ? "Package scripts or make targets need attention in Details. Review their exact commands before approval. Approval does not start workers."
+            : "Review task scope, acceptance commands and budgets in Details first. Approval does not start workers."
         )
       }
       .confirmationDialog(
@@ -558,6 +560,10 @@ struct CompactRunDetails: View {
             ForEach(plan.plan.tasks, id: \.id) { task in
               VStack(alignment: .leading, spacing: 5) {
                 Text(task.title).font(.callout.weight(.semibold))
+                if plan.requires_attention?.contains(task.id) == true {
+                  Text("Review this package script or make target before approval.")
+                    .font(.caption).foregroundStyle(.orange)
+                }
                 Text(task.description).font(.caption).foregroundStyle(.secondary)
                 Text(task.candidate_paths.joined(separator: "\n")).font(
                   .system(.caption, design: .monospaced))

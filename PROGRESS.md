@@ -641,3 +641,30 @@ Verified on macOS (Apple Silicon), 2026-11-06:
 - `intelligence/.venv/bin/python scripts/build_desktop.py` — PASS.
 
 No paid provider calls, push, or tags were used.
+
+## H-077 — Validate planner test commands through approval policy
+
+Plan validation now requires an absolute, discovered runner and passes every
+acceptance argv through the approval classifier. Git is no longer a test runner;
+push, publish, network, deploy, destructive, and shell command classes are
+rejected. Package managers require a named test script, and make requires a
+target. These tasks appear in the plan response's `requires_attention` list and
+in the desktop approval review. Candidate file scopes reject absolute and
+parent paths.
+
+Verified on macOS (Apple Silicon), 2026-11-06:
+
+- `cargo test --locked --offline -p harness-runtime --test orchestrator` — 7 passed, including all six required regressions.
+- `cargo fmt --all --check` — PASS.
+- `cargo clippy --locked --offline --workspace --all-targets -- -D warnings` — PASS.
+- `cargo test --locked --offline --workspace` — PASS.
+- `cargo build --locked --offline --workspace` — PASS.
+- `uv run --offline --locked pytest` from `intelligence/` — 114 passed.
+- Python ruff lint/format and mypy in `intelligence/` — PASS.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 3` — PASS.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 100` — PASS.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 1 --fault` — PASS.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 1 --cancel` — PASS.
+- `intelligence/.venv/bin/python scripts/build_desktop.py` — PASS.
+
+No paid provider calls, push, or tags were used.

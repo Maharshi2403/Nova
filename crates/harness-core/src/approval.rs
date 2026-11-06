@@ -28,6 +28,9 @@ pub fn classify(argv: &[String]) -> Option<Operation> {
     if program == "git" && argv.iter().any(|v| v == "push") {
         return Some(Operation::Push);
     }
+    if matches!(program, "npm" | "pnpm" | "yarn" | "bun") && argv.iter().any(|v| v == "publish") {
+        return Some(Operation::Deploy);
+    }
     if matches!(program, "rm" | "rmdir" | "del" | "format" | "remove-item")
         || (program == "git" && argv.iter().any(|v| matches!(v.as_str(), "reset" | "clean")))
     {

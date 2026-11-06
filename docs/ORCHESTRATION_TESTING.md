@@ -24,6 +24,11 @@ of permissions, concurrency, dependencies, verification, and spend caps.
   models across three configured providers, high-risk escalation, a review route
   override, and rejecting a pinned model with incomplete capability metadata.
 
+Planner test commands are now checked against the Rust approval classifier.
+Push, publish, network, deploy and destructive commands are rejected before a
+plan is proposed. Package scripts and make targets are marked for operator
+attention in the plan response and desktop review.
+
 No paid provider generation was performed. Routing tests validate selection and
 policy, not model quality or successful remote completion. The 100-task demo uses
 mock coding actions and a prebuilt plan; it does not demonstrate a reasoning main

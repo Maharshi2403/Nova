@@ -7,6 +7,7 @@
 //! model by its complexity and risk.
 use crate::{git::git, live::invoke, provider_config::ProviderStore, worker::WorkerSpec};
 use harness_core::{
+    approval::{Operation, classify},
     domain::{Acceptance, Complexity, Project, Risk, UseCase},
     messages::ToolRequest,
     plan::PlanProposal,
@@ -32,7 +33,6 @@ const RUNNER_NAMES: &[&str] = &[
     "pytest",
     "node",
     "npm",
-    "npx",
     "pnpm",
     "yarn",
     "bun",
@@ -49,7 +49,6 @@ const RUNNER_NAMES: &[&str] = &[
     "mvn",
     "gradle",
     "dotnet",
-    "git",
 ];
 const EXTRA_BIN_DIRS: &[&str] = &["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"];
 
@@ -230,10 +229,52 @@ pub fn validate(plan: &PlanProposal, project: &Project, runners: &[String]) -> R
         if task.candidate_paths.is_empty() || task.acceptance.is_empty() {
             return Err(format!("subtask {} lacks scope or a test", task.id));
         }
+        for path in &task.candidate_paths {
+            let candidate = Path::new(path);
+            if path.is_empty()
+                || path.contains('\\')
+                || candidate.is_absolute()
+                || candidate.components().any(|component| {
+                    matches!(
+                        component,
+                        std::path::Component::ParentDir
+                            | std::path::Component::RootDir
+                            | std::path::Component::Prefix(_)
+                    )
+                })
+            {
+                return Err(format!("subtask {} has an unsafe file scope", task.id));
+            }
+        }
         for acceptance in &task.acceptance {
             match acceptance {
                 Acceptance::Test { command }
-                    if command.first().is_some_and(|p| runners.contains(p)) => {}
+                    if command.first().is_some_and(|p| {
+                        Path::new(p).is_absolute() && runners.contains(p) && program(p) != "git"
+                    }) =>
+                {
+                    if matches!(
+                        classify(command),
+                        Some(
+                            Operation::Network
+                                | Operation::Push
+                                | Operation::Deploy
+                                | Operation::Destructive
+                                | Operation::Command
+                        )
+                    ) {
+                        return Err(format!(
+                            "subtask {} test command requires separate approval",
+                            task.id
+                        ));
+                    }
+                    if attention_runner(command) && !named_script_or_target(command) {
+                        return Err(format!(
+                            "subtask {} package test needs a script or target",
+                            task.id
+                        ));
+                    }
+                }
                 _ => {
                     return Err(format!(
                         "subtask {} test must start with an available test runner",
@@ -244,4 +285,50 @@ pub fn validate(plan: &PlanProposal, project: &Project, runners: &[String]) -> R
         }
     }
     Ok(())
+}
+
+fn program(path: &str) -> &str {
+    path.rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(path)
+        .trim_end_matches(".exe")
+}
+
+fn attention_runner(command: &[String]) -> bool {
+    command
+        .first()
+        .is_some_and(|path| matches!(program(path), "make" | "npm" | "pnpm" | "yarn"))
+}
+
+fn named_script_or_target(command: &[String]) -> bool {
+    let Some(action) = command.get(1) else {
+        return false;
+    };
+    if action.starts_with('-') {
+        return false;
+    }
+    match program(&command[0]) {
+        "make" => true,
+        "npm" | "pnpm" | "yarn" => match action.as_str() {
+            "test" => true,
+            "run" | "run-script" => command
+                .get(2)
+                .is_some_and(|script| !script.starts_with('-')),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// Task IDs whose test runner executes a repository script or target.
+pub fn attention_tasks(plan: &PlanProposal) -> Vec<String> {
+    plan.tasks
+        .iter()
+        .filter(|task| {
+            task.acceptance.iter().any(|acceptance| {
+                matches!(acceptance, Acceptance::Test { command } if attention_runner(command))
+            })
+        })
+        .map(|task| task.id.to_string())
+        .collect()
 }

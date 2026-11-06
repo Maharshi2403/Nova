@@ -616,6 +616,7 @@ struct PlanResponse {
     version: u32,
     status: String,
     plan: PlanProposal,
+    requires_attention: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -1005,11 +1006,13 @@ fn plan_response(record: PlanRecord) -> PlanResponse {
         PlanStatus::Approved => "approved",
         PlanStatus::Rejected => "rejected",
     };
+    let requires_attention = harness_runtime::orchestrator::attention_tasks(&record.plan);
     PlanResponse {
         run_id: record.run_id.to_string(),
         version: record.version,
         status: status.to_owned(),
         plan: record.plan,
+        requires_attention,
     }
 }
 

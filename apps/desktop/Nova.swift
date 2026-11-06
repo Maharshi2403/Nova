@@ -42,6 +42,7 @@ struct PlanRecord: Decodable {
   let version: Int
   let status: String
   let plan: PlanData
+  let requires_attention: [String]?
 }
 struct PlanData: Decodable {
   let idea: String
