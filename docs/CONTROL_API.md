@@ -1,9 +1,10 @@
 # Control API v1 and native desktop client
 
-The daemon binds loopback. `daemon.json` holds the port; `api-token` holds a random
-credential. All /v1 routes require Authorization: Bearer TOKEN. Health returns only
-minimal status. Origin-bearing/cross-site browser requests are denied; there is no
-permissive CORS. The native desktop uses authenticated CLI stdin transport and never puts tokens in URLs/logs. Workers never receive this credential.
+The daemon binds loopback. `daemon.json` holds the port. Local `/v1` routes do
+not require authentication or an Authorization header. No API token is created
+or read. Origin-bearing/cross-site browser requests are denied; there is no
+permissive CORS. The native desktop uses the CLI stdin transport. Provider API
+credentials remain separate and are required for live model calls.
 
 JSON rejects unknown fields. Typical statuses: 422 invalid values/plan; 409 stale
 revision/conflict; 404 missing resource; 401 auth; 403 hostile origin; 429 event
@@ -17,6 +18,8 @@ capacity. Execution 202 means accepted, not verified completion.
 | POST `/v1/projects` | `{name,repo_path,trusted_local:false}` (trust optional) |
 | POST `/v1/runs` | `{project_id}` creates planning run |
 | GET `/v1/runs/{run}` | Project/state/revision |
+| POST `/v1/goals` | `{project_id,goal}` creates a run; the main agent plans subtasks in the background (202) |
+| GET `/v1/goals/{run}` | Planning status: `planning`, `proposed` (model, subtasks, tokens, cost) or `failed` (reason) |
 | POST `/v1/plans` | `{run_id,plan}` validates schema/DAG and persists version |
 | GET `/v1/plans/{run}/{version}` | Inspect proposal/approval |
 | POST `/v1/plans/{run}/{version}/approve` | Approve version; materialize tasks |
@@ -44,7 +47,7 @@ Native dashboard additions: GET `/v1/dashboard?offset=0&limit=100` returns
 newest-first projects/runs with total counts (limit 1..200); projects include their
 persisted trusted-local decision. GET `/v1/tasks/{run}/{task}/evidence` returns
 recorded verifier command/exit/duration and task/integration commit identities.
-Both require the same bearer authentication and reject browser-origin requests.
+Both work without authentication and reject browser-origin requests.
 
 Dashboard runs include their latest immutable `plan_version` when available.
 Trusted project import checks the Git root/base but permits uncommitted changes;
@@ -53,8 +56,7 @@ execution still enforces a clean checkout.
 Project controls: POST `/v1/projects/{id}/trust` with `{trusted_local:true/false}`
 records an explicit trust decision; enabling checks the Git root and base without
 requiring a clean checkout. DELETE `/v1/projects/{id}` removes only an empty
-registration (409 when it has runs), never repository files. Both require bearer
-authentication and retain origin rejection.
+registration (409 when it has runs), never repository files. Both work without authentication and retain origin rejection.
 
 Execute accepts optional `committed_snapshot` (default false). True uses the pinned
 committed source without requiring local edits to be stashed; no dirty/untracked
@@ -62,5 +64,5 @@ files are read into worker worktrees. GET `/v1/runs/{run}/source` returns null b
 first accepted execution, then `{base_sha,committed_snapshot}`. The first source is
 immutable for the run; subsequent launches reuse its hash. Each accepted launch
 also records an execution.launch event with its selected mode and pinned hash. Validation errors are
-redacted and reported directly to the authenticated operator instead of a generic
+redacted and reported directly to the local operator instead of a generic
 checklist.

@@ -23,6 +23,8 @@ struct TaskItem: Decodable, Identifiable {
 struct TaskSpec: Codable {
   let id, title, description: String
   let use_case: String?
+  let complexity: String?
+  let dependencies: [String]?
   let candidate_paths: [String]
   let acceptance: [Acceptance]
   let limits: Limits
@@ -46,7 +48,27 @@ struct PlanData: Decodable {
   let requirements: [String]
   let tasks: [TaskSpec]
 }
-struct ProviderItem: Decodable, Identifiable { let id, kind, base_url: String }
+struct PlanningStatus: Decodable {
+  let status: String
+  let reason: String?
+  let model: String?
+  let subtasks: Int?
+  let cost_usd: Double?
+  var summary: String {
+    switch status {
+    case "planning": return "Main agent is breaking the goal into subtasks…"
+    case "failed": return "Planning failed: \(reason ?? "unknown reason")"
+    default:
+      let cost = cost_usd.map { String(format: " · $%.4f", $0) } ?? ""
+      return "Main agent (\(model ?? "model")) proposed \(subtasks ?? 0) subtasks\(cost)."
+    }
+  }
+}
+struct GoalStatus: Decodable { let planning: PlanningStatus }
+struct ProviderItem: Decodable, Identifiable {
+  let id, kind, base_url: String
+  let key_editable: Bool
+}
 struct ModelItem: Decodable, Identifiable {
   let id, name, provider, source: String
   let ready: Bool
@@ -76,6 +98,7 @@ struct CommitEvidence: Decodable {
 struct Evidence: Decodable {
   let commit: CommitEvidence?
   let tests: [TestEvidence]
+  let failure: String?
 }
 struct ApprovalItem: Decodable, Identifiable {
   let id, task_id, state: String
@@ -173,6 +196,7 @@ struct Bridge {
   @Published var settings: Settings?
   @Published var selectedRun: RunItem?
   @Published var plan: PlanRecord?
+  @Published var planning: PlanningStatus?
   @Published var events: [EventItem] = []
   @Published var approvals: [ApprovalItem] = []
   @Published var usage = "No provider calls recorded."
@@ -214,6 +238,7 @@ struct Bridge {
     selectedRun = run
     tasks = []
     plan = nil
+    planning = nil
     evidence = nil
     events = []
     approvals = []
@@ -229,6 +254,10 @@ struct Bridge {
       [ApprovalItem].self, await Bridge.api("GET", "/v1/approvals?run_id=\(run.id)"))
     let source = try await Bridge.api("GET", "/v1/runs/\(run.id)/source")
     let newUsage = try await Bridge.api("GET", "/v1/usage?run_id=\(run.id)")
+    // Only main-agent runs have planning status; manual plans return 404.
+    let newPlanning = try? Bridge.decode(
+      GoalStatus.self, await Bridge.api("GET", "/v1/goals/\(run.id)")
+    ).planning
     var newPlan: PlanRecord?
     if let version = run.plan_version {
       newPlan = try Bridge.decode(
@@ -241,6 +270,7 @@ struct Bridge {
     sourceDescription = Bridge.pretty(source)
     usage = Bridge.pretty(newUsage)
     plan = newPlan
+    planning = newPlanning
   }
   func perform(_ action: @escaping () async throws -> Void) {
     guard !busy else { return }
@@ -477,6 +507,39 @@ struct ProviderForm: View {
     }.padding(28).frame(width: 420).onDisappear { key = "" }
   }
 }
+struct ProviderKeyForm: View {
+  @EnvironmentObject var model: NovaModel
+  @Environment(\.dismiss) var dismiss
+  let provider: ProviderItem
+  @State private var key = ""
+  var body: some View {
+    VStack(alignment: .leading, spacing: 18) {
+      SheetHeader(
+        title: "Update API key",
+        subtitle: "Replace the saved key for \(provider.id). Its models and routes stay connected.")
+      SecureField("New API key", text: $key).textFieldStyle(.roundedBorder)
+      Text("The new key is saved in macOS Keychain. Nova does not display the current key.")
+        .font(.caption).foregroundStyle(.secondary)
+      HStack {
+        Button("Cancel") { dismiss() }
+        Spacer()
+        Button("Save key") {
+          let newKey = key
+          key = ""
+          model.perform {
+            let result = try await Bridge.call([
+              "op": "update_key", "name": provider.id, "key": newKey,
+            ])
+            let response = try JSONSerialization.jsonObject(with: result) as? [String: Any]
+            model.notice = response?["message"] as? String
+          }
+          dismiss()
+        }.buttonStyle(.borderedProminent).disabled(
+          key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.busy)
+      }
+    }.padding(28).frame(width: 420).onDisappear { key = "" }
+  }
+}
 struct TaskDraft: Identifiable {
   var id = "task-" + UUID().uuidString.lowercased().prefix(8), title = "", description = "",
     paths = "", arguments = "", useCase = "coding", complexity = "medium",
@@ -502,6 +565,56 @@ struct TaskDraft: Identifiable {
         "cost_cap_usd": cost,
       ],
     ]
+  }
+}
+struct GoalForm: View {
+  @EnvironmentObject var model: NovaModel
+  @Environment(\.dismiss) var dismiss
+  @State var project = ""
+  @State var goal = ""
+  var body: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      SheetHeader(
+        title: "Give Nova a goal",
+        subtitle:
+          "The main agent splits it into small subtasks, each with its own files and test. Nothing runs until you approve the plan."
+      )
+      Picker("Project", selection: $project) {
+        Text("Choose a project").tag("")
+        ForEach(model.projects) { Text($0.name).tag($0.id) }
+      }
+      Text("What should be built or fixed?").font(.caption)
+      TextEditor(text: $goal).font(.callout).frame(height: 140).overlay(
+        RoundedRectangle(cornerRadius: 5).stroke(.quaternary))
+      Text(
+        "Planning uses your Planning route (or the strongest ready model) and one paid call. Subtasks are then routed to cheaper or stronger models by complexity."
+      ).font(.caption2).foregroundStyle(.secondary)
+      if !(model.settings?.models.contains { $0.ready } ?? false) {
+        Text("Connect a provider with a ready model first (Models tab).").font(.caption)
+          .foregroundStyle(.orange)
+      }
+      HStack {
+        Button("Cancel") { dismiss() }
+        Spacer()
+        Button("Plan with main agent") { submit() }.buttonStyle(.borderedProminent).disabled(
+          project.isEmpty || goal.trimmingCharacters(in: .whitespacesAndNewlines).count < 5
+            || !(model.settings?.models.contains { $0.ready } ?? false))
+      }
+    }.padding(22).frame(width: 440).onAppear {
+      project = model.projects.first?.id ?? ""
+    }
+  }
+  func submit() {
+    let body: [String: Any] = ["project_id": project, "goal": goal]
+    model.perform {
+      let data = try await Bridge.api("POST", "/v1/goals", body)
+      let value = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+      let item = try Bridge.decode(
+        RunItem.self, JSONSerialization.data(withJSONObject: value["run"]!))
+      model.select(item)
+      model.notice = "Main agent is planning. Review the subtasks when they appear."
+    }
+    dismiss()
   }
 }
 struct PlanForm: View {
@@ -661,8 +774,14 @@ struct ExecuteReview: View {
               VStack(alignment: .leading, spacing: 6) {
                 Text(task.title).font(.headline)
                 Text(
-                  "Model route: \(model.settings?.routes[task.use_case ?? "coding"] ?? "complexity / risk defaults")"
+                  "Model route: \(model.settings?.routes[task.use_case ?? "coding"] ?? "\(task.complexity ?? "medium") complexity tier")"
                 ).font(.caption).foregroundStyle(.secondary)
+                if let deps = task.dependencies, !deps.isEmpty {
+                  Text("After: \(deps.joined(separator: ", "))").font(.caption2).foregroundStyle(
+                    .secondary)
+                }
+                Text(task.description).font(.caption2).foregroundStyle(.secondary).lineLimit(4)
+                Text("May edit: \(task.candidate_paths.joined(separator: ", "))").font(.caption2)
                 Text(String(format: "Task spend cap $%.2f", task.limits.cost_cap_usd)).font(
                   .caption)
                 ForEach(Array(task.acceptance.enumerated()), id: \.offset) { criterion in

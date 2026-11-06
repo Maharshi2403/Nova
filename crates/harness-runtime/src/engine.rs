@@ -286,8 +286,10 @@ impl Engine {
                         options.live.as_ref().map_or(
                             BudgetRequest {
                                 estimated_microdollars: 0,
-                                run_cap_microdollars: 0,
-                                daily_cap_microdollars: 0,
+                                // Mock calls reserve no spend. Existing live reservations
+                                // must not strand offline demonstrations in Ready.
+                                run_cap_microdollars: u64::MAX,
+                                daily_cap_microdollars: u64::MAX,
                             },
                             |(config, _)| BudgetRequest {
                                 estimated_microdollars: (task.spec.limits.cost_cap_usd
@@ -565,7 +567,7 @@ impl Execution {
             .map_err(|e| e.to_string())?
             {
                 Outcome::Completed(_) => Ok(()),
-                Outcome::Failed(_) => Err("worker failed".into()),
+                Outcome::Failed(failure) => Err(format!("worker failed: {}", failure.reason)),
             }
         }
         .await;

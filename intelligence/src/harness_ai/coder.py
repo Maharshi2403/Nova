@@ -68,7 +68,7 @@ async def code_task(assignment: StartTask, provider: ModelProvider, tool: Tool, 
         schema = Action.model_json_schema()
         heartbeat = asyncio.create_task(pulse())
         async with asyncio.timeout(assignment.timeout_seconds):
-            for _turn in range(min(16, assignment.max_tool_calls)):
+            for _turn in range(assignment.max_tool_calls):
                 prompt = build_prompt(
                     "coder",
                     required,
@@ -160,15 +160,16 @@ async def code_task(assignment: StartTask, provider: ModelProvider, tool: Tool, 
                     raise PermanentProviderError("unknown output usage prevents another model call")
                 remaining -= usage.output_tokens
         raise PermanentProviderError("coder turn limit exhausted")
-    except (ProviderError, ValueError, KeyError, TypeError, TimeoutError):
-        # Never echo provider bodies, task contents, Pydantic inputs or credentials.
-        emit(
-            "failed",
-            Failed(
-                reason="coder stopped by provider, context, protocol or budget policy",
-                retryable=False,
-            ).model_dump(),
-        )
+    except (ProviderError, ValueError, KeyError, TypeError, TimeoutError) as exc:
+        # Provider errors carry fixed messages (never bodies, prompts or credentials).
+        # Other exceptions may embed model output or task data, so report only their class.
+        if isinstance(exc, ProviderError):
+            cause = f"provider: {str(exc)[:200]}"
+        elif isinstance(exc, TimeoutError):
+            cause = "task timeout"
+        else:
+            cause = f"invalid model action ({type(exc).__name__})"
+        emit("failed", Failed(reason=f"coder stopped: {cause}", retryable=False).model_dump())
     finally:
         if heartbeat is not None:
             heartbeat.cancel()

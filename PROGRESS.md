@@ -517,3 +517,39 @@ Validation: three positive/negative/external-file stdlib tests passed; script CI
 format/lint passed; native Swift compilation passed. CI and operator checks now
 include the checker tests. Desktop packaging scripts were formatted to their CI
 configuration. Final bundled-checker acceptance and install follow this commit.
+
+# Nova handover v2 progress
+
+## H-073 — Land the in-progress working tree
+
+Baseline: `3f4c4ec` plus the uncommitted working tree described in `HANDOVER_V2.md`.
+Backup: `/private/tmp/nova-h073-backup/tracked.patch` and its `untracked/` directory.
+
+The working tree was divided into H-073a (failure diagnostics), H-073b
+(acceptance-check artifact cleanup), and H-073c (main-agent goal planning and
+remaining WIP). The final commit also retains pre-existing provider key editing,
+Anthropic header and coder turn-limit changes; these were present before H-073.
+
+Verified on macOS (Apple Silicon), 2026-11-06:
+
+- `cargo build --locked --offline --workspace` — PASS.
+- `cargo fmt --all --check` — PASS after formatting the pre-existing desktop bridge changes.
+- `cargo clippy --locked --offline --workspace --all-targets -- -D warnings` — PASS.
+- `cargo test --locked --offline --workspace` — PASS.
+- `cargo test --locked --offline -p harness-runtime --test live_e2e` — 4 passed.
+- `UV_CACHE_DIR=/private/tmp/nova-uv-cache uv run --locked --offline ruff check .` from `intelligence/` — PASS.
+- `UV_CACHE_DIR=/private/tmp/nova-uv-cache uv run --locked --offline ruff format --check .` from `intelligence/` — PASS.
+- `UV_CACHE_DIR=/private/tmp/nova-uv-cache uv run --locked --offline mypy src` from `intelligence/` — PASS.
+- `uv run --locked --offline --project intelligence pytest -q` — 117 passed.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 3` — PASS.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 100` — PASS.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 1 --fault` — PASS.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 1 --cancel` — PASS.
+- `intelligence/.venv/bin/python scripts/build_desktop.py` — PASS.
+
+The 100-task, fault and cancel demos needed execution outside the filesystem
+sandbox because the sandbox denied the daemon's loopback bind. No paid provider
+calls, push, or tags were used.
+
+Known security regression pending H-075: the control API has no bearer
+authentication. Until H-075, do not use this build with real provider keys.

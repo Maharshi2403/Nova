@@ -12,9 +12,7 @@ use std::{
 fn running(directory: &Path) -> Result<Option<Client>, CliError> {
     let client = match Client::from_data_dir(directory) {
         Ok(client) => client,
-        Err(CliError::Discovery(e) | CliError::Token(e))
-            if e.kind() == std::io::ErrorKind::NotFound =>
-        {
+        Err(CliError::Discovery(e)) if e.kind() == std::io::ErrorKind::NotFound => {
             return Ok(None);
         }
         Err(error) => return Err(error),
@@ -23,7 +21,7 @@ fn running(directory: &Path) -> Result<Option<Client>, CliError> {
         Ok(response) => {
             let status: serde_json::Value =
                 serde_json::from_str(&response).map_err(CliError::DiscoveryJson)?;
-            if status["status"] != "authenticated" {
+            if status["status"] != "ok" {
                 return Err(CliError::Startup(
                     "unexpected local service response".into(),
                 ));

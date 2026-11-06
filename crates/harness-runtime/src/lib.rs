@@ -10,6 +10,7 @@ pub mod git;
 pub mod integration;
 pub mod live;
 pub mod locks;
+pub mod orchestrator;
 pub mod pool;
 pub mod priority;
 pub mod provider_config;

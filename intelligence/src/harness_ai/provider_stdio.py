@@ -10,6 +10,7 @@ from typing import Any, BinaryIO, cast
 from harness_ai.assignment import ToolResponse, _envelope
 from harness_ai.framing import read_frame, write_frame
 from harness_ai.handshake import build_ack
+from harness_ai.orchestrator import PlanningError, plan_goal
 from harness_ai.providers.base import (
     Message,
     ModelResult,
@@ -46,10 +47,38 @@ class BrokerProvider:
             },
         )
         if not response.ok:
-            if response.error == "transient_provider":
-                raise TransientProviderError("provider transient failure")
-            raise PermanentProviderError("provider or runtime policy rejected request")
+            # "<category>: <detail>" where detail is a fixed or sanitized message.
+            category, _, detail = (response.error or "unknown").partition(": ")
+            reason = (detail or category)[:200]
+            if category == "transient_provider":
+                raise TransientProviderError(reason)
+            raise PermanentProviderError(reason)
         return ModelResult.model_validate(response.result)
+
+
+async def _plan_goal(
+    kind: str, name: str, key: str, base: str, enabled: bool, request: Any
+) -> dict[str, Any]:
+    """Main-agent decomposition. Rust supplies model, caps and bounded repository context."""
+    provider: Any = (
+        OpenAIProvider(enabled=enabled, api_key=key)
+        if kind == "openai"
+        else JSONProvider(kind=cast(Kind, kind), enabled=enabled, api_key=key, base_url=base)
+    )
+    plan, result = await plan_goal(provider, **request.payload["arguments"])
+    return {
+        "plan": plan.model_dump(mode="json", exclude_none=True),
+        "provider": name,
+        "model_id": result.model_id,
+        "usage": result.usage.model_dump(mode="json"),
+    }
+
+
+def _detail(exc: BaseException) -> str:
+    # Provider errors carry fixed messages plus at most a sanitized provider error code.
+    if isinstance(exc, TimeoutError):
+        return "provider timeout"
+    return str(exc)[:200]
 
 
 def serve_provider(stdin: BinaryIO, stdout: BinaryIO) -> int:
@@ -61,7 +90,7 @@ def serve_provider(stdin: BinaryIO, stdout: BinaryIO) -> int:
     if (
         request is None
         or request.kind != "tool_request"
-        or request.payload.get("tool") not in ("model.complete", "models.list")
+        or request.payload.get("tool") not in ("model.complete", "models.list", "plan.goal")
     ):
         return 2
     try:
@@ -78,6 +107,10 @@ def serve_provider(stdin: BinaryIO, stdout: BinaryIO) -> int:
                 kind=cast(Kind, kind), enabled=enabled, api_key=key, base_url=base
             )
             response = ToolResponse(ok=True, result=asyncio.run(catalog.discover()))
+        elif request.payload["tool"] == "plan.goal":
+            response = ToolResponse(
+                ok=True, result=asyncio.run(_plan_goal(kind, name, key, base, enabled, request))
+            )
         else:
             provider = (
                 OpenAIProvider(enabled=enabled, api_key=key)
@@ -90,10 +123,15 @@ def serve_provider(stdin: BinaryIO, stdout: BinaryIO) -> int:
             response = ToolResponse(
                 ok=True, result=result.model_copy(update={"provider": name}).model_dump()
             )
-    except (TransientProviderError, TimeoutError):
-        response = ToolResponse(ok=False, error="transient_provider")
-    except (PermanentProviderError, ValueError, TypeError, KeyError):
-        response = ToolResponse(ok=False, error="permanent_provider")
+    except PlanningError as exc:
+        response = ToolResponse(ok=False, error=f"permanent_provider: {str(exc)[:200]}")
+    except (TransientProviderError, TimeoutError) as exc:
+        response = ToolResponse(ok=False, error=f"transient_provider: {_detail(exc)}")
+    except PermanentProviderError as exc:
+        response = ToolResponse(ok=False, error=f"permanent_provider: {_detail(exc)}")
+    except (ValueError, TypeError, KeyError) as exc:
+        # These may embed request values; report only the exception class.
+        response = ToolResponse(ok=False, error=f"permanent_provider: adapter {type(exc).__name__}")
     write_frame(
         stdout, _envelope(request, "tool_response", response.model_dump(), request.message_id)
     )

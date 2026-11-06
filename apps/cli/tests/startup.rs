@@ -34,6 +34,9 @@ fn bare_nova_starts_attaches_and_stops_without_losing_state() {
     assert_eq!(started["name"], "Nova");
     assert_eq!(started["status"], "running");
     assert_eq!(started["started"], true);
+    assert!(!service.0.path().join("api-token").exists());
+    // Legacy token files, including empty ones, no longer affect attach or restart.
+    std::fs::write(service.0.path().join("api-token"), "").unwrap();
     let discovery = std::fs::read(service.0.path().join("daemon.json")).unwrap();
     assert_eq!(service.json(&["start"])["started"], false);
     assert_eq!(

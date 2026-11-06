@@ -30,10 +30,9 @@ bypass this gate. Approved commands still require exact argv authorization.
 - Coder workers have scrubbed environments and isolated imports. Only a separate
   provider adapter gets only the selected saved credential for one authorized bounded request.
   Rust records provider usage; uncertain calls retain reserved spend.
-- Local API tokens are random, stored with restrictive Unix permissions, absent
-  from worker environments, and never placed in URLs. Browser-origin requests are
-  rejected. Windows file protection depends on the private per-user directory ACL;
-  use a dedicated private data directory, not a shared location.
+- The local API has no authentication for now. It binds only loopback and rejects
+  browser-origin/cross-site requests. Other local processes can control it; it is
+  not a multi-user boundary. Provider API credentials still use the configured vault.
 - Logs/artifacts are bounded and redact known credentials/token patterns. This is
   not a guarantee of detecting every unknown secret. Do not place secrets in prompts,
   test argv or source files supplied to a model.

@@ -84,6 +84,16 @@ enum Command {
         #[arg(long)]
         trust_local: bool,
     },
+    /// Hand a goal to the main agent, which proposes subtasks for your approval.
+    /// Check progress with `nova goal-status RUN_ID`.
+    Goal {
+        project_id: String,
+        goal: String,
+    },
+    /// Main-agent planning status: planning, proposed (with model/cost) or failed.
+    GoalStatus {
+        run_id: String,
+    },
     Plan {
         run_id: String,
         file: PathBuf,
@@ -134,10 +144,6 @@ enum CliError {
     Discovery(#[source] std::io::Error),
     #[error("daemon discovery metadata is invalid: {0}")]
     DiscoveryJson(#[source] serde_json::Error),
-    #[error("daemon token is unavailable: {0}")]
-    Token(#[source] std::io::Error),
-    #[error("daemon token is empty")]
-    EmptyToken,
     #[error("could not contact loopback daemon: {0}")]
     Connect(#[source] std::io::Error),
     #[error("request rejected: {0}")]
@@ -152,7 +158,6 @@ enum CliError {
 
 struct Client {
     address: SocketAddr,
-    token: String,
 }
 
 fn main() {
@@ -290,6 +295,14 @@ fn execute(cli: Cli) -> Result<String, CliError> {
             "/v1/projects",
             Some(serde_json::json!({"name": name, "repo_path": repo, "trusted_local":trust_local})),
         )?,
+        Command::Goal { project_id, goal } => client.request(
+            "POST",
+            "/v1/goals",
+            Some(serde_json::json!({"project_id": project_id, "goal": goal})),
+        )?,
+        Command::GoalStatus { run_id } => {
+            client.request("GET", &format!("/v1/goals/{run_id}"), None)?
+        }
         Command::Plan { run_id, file } => {
             let plan = std::fs::read_to_string(file).map_err(CliError::Input)?;
             let plan: serde_json::Value =
@@ -365,16 +378,8 @@ impl Client {
             .and_then(serde_json::Value::as_u64)
             .and_then(|port| u16::try_from(port).ok())
             .ok_or_else(|| CliError::Protocol("missing daemon port".into()))?;
-        let token = std::fs::read_to_string(data_dir.join("api-token"))
-            .map_err(CliError::Token)?
-            .trim()
-            .to_owned();
-        if token.is_empty() {
-            return Err(CliError::EmptyToken);
-        }
         Ok(Self {
             address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port),
-            token,
         })
     }
 
@@ -404,8 +409,7 @@ impl Client {
             .set_write_timeout(Some(timeout))
             .map_err(CliError::Connect)?;
         let request = format!(
-            "{method} {path} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-            self.token,
+            "{method} {path} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
             body.len()
         );
         stream

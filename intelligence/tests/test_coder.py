@@ -9,7 +9,7 @@ from harness_ai.providers.mock import MockModelProvider
 
 
 def exercise(
-    *, denied: bool = False
+    *, denied: bool = False, reads: int = 1, max_tool_calls: int = 10
 ) -> tuple[list[str], list[tuple[str, dict[str, Any]]], MockModelProvider]:
     task = json.loads(
         (Path(__file__).resolve().parents[2] / "tests/fixtures/plans/valid_plan.json").read_text()
@@ -31,12 +31,15 @@ def exercise(
 
     provider = MockModelProvider(
         queue=[
-            {
-                "action": "tool",
-                "tool": "repo.read",
-                "arguments_json": '{"path":"README.md"}',
-                "summary": "inspect",
-            },
+            *[
+                {
+                    "action": "tool",
+                    "tool": "repo.read",
+                    "arguments_json": '{"path":"README.md"}',
+                    "summary": f"inspect {index}",
+                }
+                for index in range(reads)
+            ],
             {"action": "completed", "tool": None, "arguments_json": None, "summary": "finished"},
         ]
     )
@@ -46,7 +49,7 @@ def exercise(
         model=ModelRef(provider="openai", model_id="configured"),
         context_manifest_hash="h",
         allowed_tools=["task.describe", "model.authorize", "repo.read"],
-        max_tool_calls=10,
+        max_tool_calls=max_tool_calls,
         max_output_tokens=2000,
         timeout_seconds=10,
         cost_cap_usd=1,
@@ -69,3 +72,10 @@ def test_live_coder_spend_denied_before_any_provider_call() -> None:
     assert calls == ["task.describe", "model.authorize"]
     assert not provider.calls
     assert events[-1][0] == "failed"
+
+
+def test_live_coder_can_use_task_turn_budget_beyond_sixteen() -> None:
+    calls, events, provider = exercise(reads=17, max_tool_calls=18)
+    assert len(provider.calls) == 18
+    assert calls.count("repo.read") == 17
+    assert events[-1][0] == "completed"

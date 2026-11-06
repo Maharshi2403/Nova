@@ -2,7 +2,7 @@
 
 Rust owns task state, scheduling, budgets, permissions, verification and Git
 integration. Python proposes plans and coding actions through versioned JSONL.
-The CLI and native macOS dashboard talk to an authenticated loopback daemon.
+The CLI and native macOS dashboard talk to a loopback daemon without account or bearer authentication.
 
 The offline runtime and opt-in live coder are implemented. Local macOS tests pass;
 Windows and hosted release gates require CI evidence before release. See

@@ -147,7 +147,10 @@ struct Dashboard: View {
   @State var tab = "Work"
   @State var projectForm = false
   @State var planForm = false
+  @State var goalForm = false
   @State var providerForm = false
+  @State var editingProviderKey: ProviderItem?
+  @State var removingProvider: ProviderItem?
   @State var routesForm = false
   @State var details = false
   @State var executionReview = false
@@ -225,7 +228,9 @@ struct Dashboard: View {
         HStack {
           Text(activity).font(.system(size: 10)).foregroundStyle(.secondary)
           Spacer()
-          Button("New task", systemImage: "plus") { planForm = true }.buttonStyle(
+          Button("Manual plan") { planForm = true }.controlSize(.small).disabled(
+            model.projects.isEmpty || model.busy)
+          Button("New goal", systemImage: "sparkles") { goalForm = true }.buttonStyle(
             .borderedProminent
           ).controlSize(.small).disabled(model.projects.isEmpty || model.busy)
         }.padding(.horizontal, 13).frame(height: 40)
@@ -248,10 +253,32 @@ struct Dashboard: View {
       }
       .sheet(isPresented: $projectForm) { ProjectForm().environmentObject(model) }
       .sheet(isPresented: $planForm) { PlanForm().environmentObject(model) }
+      .sheet(isPresented: $goalForm) { GoalForm().environmentObject(model) }
       .sheet(isPresented: $providerForm) { ProviderForm().environmentObject(model) }
+      .sheet(item: $editingProviderKey) { provider in
+        ProviderKeyForm(provider: provider).environmentObject(model)
+      }
       .sheet(isPresented: $executionReview) { ExecuteReview().environmentObject(model) }
       .sheet(isPresented: $routesForm) { RoutesSheet().environmentObject(model) }
       .sheet(isPresented: $details) { CompactRunDetails().environmentObject(model) }
+      .confirmationDialog(
+        "Remove \(removingProvider?.id ?? "provider")?",
+        isPresented: Binding(
+          get: { removingProvider != nil },
+          set: { if !$0 { removingProvider = nil } }),
+        titleVisibility: .visible
+      ) {
+        Button("Remove connection and saved key", role: .destructive) {
+          guard let provider = removingProvider else { return }
+          removingProvider = nil
+          model.perform {
+            _ = try await Bridge.call(["op": "remove", "name": provider.id])
+            model.notice = "Provider removed."
+          }
+        }
+      } message: {
+        Text("Its models and routes will be removed. Running executions retain their current configuration.")
+      }
       .confirmationDialog(
         "Approve this plan?", isPresented: $approveReview, titleVisibility: .visible
       ) {
@@ -307,6 +334,7 @@ struct Dashboard: View {
   var pillActivity: String {
     if model.busy { return "Working" }
     if !model.connected { return "Offline" }
+    if model.planning?.status == "planning" { return "Planning" }
     if model.selectedRun?.state == "awaiting_approval" { return "Review" }
     let active = model.tasks.filter {
       ["running", "leased", "verifying", "integrating"].contains($0.state)
@@ -316,6 +344,7 @@ struct Dashboard: View {
   var activity: String {
     if model.busy { return "Working…" }
     if !model.connected { return "Connecting…" }
+    if model.planning?.status == "planning" { return "Main agent planning…" }
     if model.selectedRun?.state == "awaiting_approval" { return "Approval needed" }
     if model.projects.isEmpty { return "Add a project" }
 
@@ -335,7 +364,7 @@ struct Dashboard: View {
         Text(
           model.projects.isEmpty
             ? "Add a repository, then create a task."
-            : "Create a task plan. Review, approve, then execute."
+            : "Describe a goal. Nova plans subtasks; you approve, then execute."
         ).font(.caption).foregroundStyle(.secondary)
         if model.projects.isEmpty {
           Button("Add project", systemImage: "folder.badge.plus") { projectForm = true }
@@ -367,6 +396,11 @@ struct Dashboard: View {
             StatePill(
               state: run.state == "running" && model.tasks.allSatisfy { $0.attempt == 0 }
                 ? "ready" : run.state)
+          }
+          if let planning = model.planning {
+            Text(planning.summary).font(.caption).foregroundStyle(
+              planning.status == "failed" ? .orange : .secondary
+            ).lineLimit(3)
           }
           if !model.tasks.isEmpty {
             ProgressView(
@@ -472,6 +506,14 @@ struct Dashboard: View {
           Text(provider.id).font(.callout)
           Spacer()
           Text(provider.kind).font(.caption).foregroundStyle(.secondary)
+          Menu {
+            if provider.key_editable {
+              Button("Update API key…") { editingProviderKey = provider }
+            }
+            Button("Remove provider…", role: .destructive) { removingProvider = provider }
+          } label: {
+            Image(systemName: "ellipsis")
+          }.menuStyle(.borderlessButton).fixedSize().help("Manage \(provider.id)")
         }
       }
       Text("\(model.settings?.models.filter{$0.ready}.count ?? 0) ready models").font(.caption)
@@ -534,6 +576,10 @@ struct CompactRunDetails: View {
             Button("Evidence: \(task.spec.title)") { model.inspect(task) }
           }
           if let evidence = model.evidence {
+            if let failure = evidence.failure {
+              Text("Worker blocked: \(failure)").font(.caption).foregroundStyle(.orange)
+                .textSelection(.enabled)
+            }
             if let commit = evidence.commit {
               Text(
                 "Task: \(commit.task_commit_sha)\nIntegrated: \(commit.integration_commit_sha ?? "pending")"

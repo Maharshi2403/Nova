@@ -54,6 +54,45 @@ fn bridge_rejects_injection_and_never_echoes_keys() {
     assert!(!String::from_utf8_lossy(&out.stdout).contains("desktop-fixture-secret"));
     assert!(!dir.path().join("providers.json").exists());
 }
+#[test]
+fn key_update_rejects_environment_credentials_without_exposing_secret() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let added = Command::new(env!("CARGO_BIN_EXE_nova"))
+        .arg("--daemon-dir")
+        .arg(root)
+        .args([
+            "providers",
+            "add",
+            "fixture",
+            "--kind",
+            "compatible",
+            "--base-url",
+            "http://127.0.0.1:8080/v1",
+            "--key-env",
+            "NOVA_FIXTURE_KEY",
+            "--skip-discovery",
+        ])
+        .env("NOVA_FIXTURE_KEY", "fixture-key")
+        .output()
+        .unwrap();
+    assert!(added.status.success());
+    let settings = call(root, json!({"op":"settings"}));
+    assert_eq!(settings["providers"][0]["key_editable"], false);
+    let secret = "replacement-fixture-secret";
+    let out = request(
+        root,
+        json!({"op":"update_key","name":"fixture","key":secret}),
+    );
+    assert!(!out.status.success());
+    assert!(!String::from_utf8_lossy(&out.stderr).contains(secret));
+    assert!(!String::from_utf8_lossy(&out.stdout).contains(secret));
+    assert!(
+        !std::fs::read_to_string(root.join("providers.json"))
+            .unwrap()
+            .contains(secret)
+    );
+}
 struct Service(std::path::PathBuf);
 impl Drop for Service {
     fn drop(&mut self) {

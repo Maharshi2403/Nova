@@ -1,4 +1,4 @@
-//! Loopback-only authenticated control server.
+//! Loopback-only local control server.
 
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
@@ -21,7 +21,6 @@ use harness_store::repository::{PriorityUpdate, Repository};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-const TOKEN_FILE: &str = "api-token";
 const PORT_FILE: &str = "daemon.json";
 
 #[derive(Debug, thiserror::Error)]
@@ -30,8 +29,6 @@ pub enum DaemonError {
     NonLoopback(SocketAddr),
     #[error("could not access daemon data directory: {0}")]
     DataDirectory(#[source] std::io::Error),
-    #[error("could not create API token file: {0}")]
-    TokenFile(#[source] std::io::Error),
     #[error("could not write daemon discovery metadata: {0}")]
     DiscoveryFile(#[source] std::io::Error),
     #[error("could not bind daemon listener: {0}")]
@@ -43,8 +40,6 @@ pub enum DaemonError {
 #[derive(Debug)]
 pub struct Daemon {
     pub address: SocketAddr,
-    token: String,
-    pub token_path: PathBuf,
     pub discovery_path: PathBuf,
     shutdown: tokio::sync::watch::Sender<bool>,
     server: tokio::task::JoinHandle<()>,
@@ -71,9 +66,6 @@ pub async fn start(data_dir: impl AsRef<Path>, bind: SocketAddr) -> Result<Daemo
     daemon_lock
         .try_lock()
         .map_err(|e| DaemonError::DataDirectory(std::io::Error::other(e)))?;
-    let token_path = data_dir.join(TOKEN_FILE);
-    let token = load_or_create_token(&token_path)?;
-    harness_core::redaction::register_secret(&token);
     // Reuse a durable port on restart: binding it establishes single-daemon ownership
     // before touching leases. A second daemon with the same data directory fails closed.
     let bind = if bind.port() == 0 {
@@ -105,12 +97,12 @@ pub async fn start(data_dir: impl AsRef<Path>, bind: SocketAddr) -> Result<Daemo
     std::fs::write(&discovery_path, discovery).map_err(DaemonError::DiscoveryFile)?;
     let (shutdown, mut stopping) = tokio::sync::watch::channel(false);
     let app = api_router_with_lifecycle(
-        token.clone(),
         store,
         Some(harness_runtime::engine::Engine::new(
             data_dir.join("execution"),
         )),
         Some(shutdown.clone()),
+        Some(data_dir.to_path_buf()),
     );
     let server = tokio::spawn(async move {
         let _daemon_lock = daemon_lock;
@@ -124,8 +116,6 @@ pub async fn start(data_dir: impl AsRef<Path>, bind: SocketAddr) -> Result<Daemo
     });
     Ok(Daemon {
         address,
-        token,
-        token_path,
         discovery_path,
         shutdown,
         server,
@@ -150,9 +140,6 @@ impl Daemon {
             _ = &mut server => {},
         }
     }
-    pub fn authorization_header(&self) -> String {
-        ["Bearer", &self.token].join(" ")
-    }
 }
 
 #[derive(Clone)]
@@ -161,33 +148,43 @@ struct ApiState {
     event_waiters: Arc<tokio::sync::Semaphore>,
     engine: Option<harness_runtime::engine::Engine>,
     shutdown: Option<tokio::sync::watch::Sender<bool>>,
+    /// Directory holding `providers.json`; required for the main planning agent.
+    settings_root: Option<PathBuf>,
 }
 
-pub fn router(token: String) -> Router {
+pub fn router() -> Router {
     Router::new().route("/healthz", get(healthz)).nest(
         "/v1",
         Router::new()
             .route("/control", get(control))
-            .layer(axum::middleware::from_fn_with_state(token, require_bearer)),
+            .layer(axum::middleware::from_fn(reject_browser_requests)),
     )
 }
 
-pub fn api_router(token: String, store: Store) -> Router {
-    api_router_with_runtime(token, store, None)
+pub fn api_router(store: Store) -> Router {
+    api_router_with_runtime(store, None)
 }
 
 pub fn api_router_with_runtime(
-    token: String,
     store: Store,
     engine: Option<harness_runtime::engine::Engine>,
 ) -> Router {
-    api_router_with_lifecycle(token, store, engine, None)
+    api_router_with_lifecycle(store, engine, None, None)
+}
+
+/// Router whose main planning agent reads provider settings from `settings_root`.
+pub fn api_router_with_settings(
+    store: Store,
+    engine: Option<harness_runtime::engine::Engine>,
+    settings_root: PathBuf,
+) -> Router {
+    api_router_with_lifecycle(store, engine, None, Some(settings_root))
 }
 fn api_router_with_lifecycle(
-    token: String,
     store: Store,
     engine: Option<harness_runtime::engine::Engine>,
     shutdown: Option<tokio::sync::watch::Sender<bool>>,
+    settings_root: Option<PathBuf>,
 ) -> Router {
     Router::new().route("/healthz", get(healthz)).nest(
         "/v1",
@@ -202,6 +199,8 @@ fn api_router_with_lifecycle(
                 "/projects/{project_id}",
                 axum::routing::delete(remove_project),
             )
+            .route("/goals", post(submit_goal))
+            .route("/goals/{run_id}", get(goal_status))
             .route("/plans", post(propose_plan))
             .route("/plans/{run_id}/{version}", get(get_plan))
             .route("/plans/{run_id}/{version}/approve", post(approve_plan))
@@ -226,8 +225,9 @@ fn api_router_with_lifecycle(
                 event_waiters: Arc::new(tokio::sync::Semaphore::new(64)),
                 engine,
                 shutdown,
+                settings_root,
             })
-            .layer(axum::middleware::from_fn_with_state(token, require_bearer)),
+            .layer(axum::middleware::from_fn(reject_browser_requests)),
     )
 }
 
@@ -292,10 +292,15 @@ async fn task_evidence(
         .list_test_results(&run, &task)
         .await
         .map_err(store_error)?;
+    let failure = state
+        .store
+        .latest_task_failure(&run, &task)
+        .await
+        .map_err(store_error)?;
     Ok((
         StatusCode::OK,
         Json(
-            serde_json::json!({"commit":commit.map(|c|serde_json::json!({"task_commit_sha":c.task_commit_sha,"integration_commit_sha":c.integration_commit_sha,"diff_paths":c.diff_paths})),"tests":tests.into_iter().map(|t|serde_json::json!({"id":t.id,"command":t.command,"exit_code":t.exit_code,"duration_ms":t.duration_ms})).collect::<Vec<_>>()}),
+            serde_json::json!({"commit":commit.map(|c|serde_json::json!({"task_commit_sha":c.task_commit_sha,"integration_commit_sha":c.integration_commit_sha,"diff_paths":c.diff_paths})),"tests":tests.into_iter().map(|t|serde_json::json!({"id":t.id,"command":t.command,"exit_code":t.exit_code,"duration_ms":t.duration_ms})).collect::<Vec<_>>(),"failure":failure}),
         ),
     ))
 }
@@ -393,14 +398,10 @@ async fn execution_source(
 }
 
 async fn control() -> Json<serde_json::Value> {
-    Json(serde_json::json!({"status": "authenticated"}))
+    Json(serde_json::json!({"status": "ok"}))
 }
 
-async fn require_bearer(
-    State(token): State<String>,
-    request: Request<Body>,
-    next: axum::middleware::Next,
-) -> Response {
+async fn reject_browser_requests(request: Request<Body>, next: axum::middleware::Next) -> Response {
     if request.headers().contains_key(header::ORIGIN)
         || request
             .headers()
@@ -409,21 +410,7 @@ async fn require_bearer(
     {
         return StatusCode::FORBIDDEN.into_response();
     }
-    let expected = ["Bearer", &token].join(" ");
-    match request.headers().get(header::AUTHORIZATION) {
-        Some(value)
-            if value.as_bytes().len() == expected.len()
-                && value
-                    .as_bytes()
-                    .iter()
-                    .zip(expected.as_bytes())
-                    .fold(0u8, |diff, (a, b)| diff | (a ^ b))
-                    == 0 =>
-        {
-            next.run(request).await
-        }
-        _ => StatusCode::UNAUTHORIZED.into_response(),
-    }
+    next.run(request).await
 }
 
 #[derive(Deserialize)]
@@ -661,6 +648,156 @@ async fn create_project(
             name: project.name,
             repo_path: project.repo_path,
         }),
+    ))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GoalRequest {
+    project_id: String,
+    goal: String,
+}
+
+/// Hand a user goal to the main agent. Planning runs in the background; the run moves
+/// to `awaiting_approval` with a proposed subtask plan, or to `failed` with a reason.
+async fn submit_goal(
+    State(state): State<ApiState>,
+    Json(request): Json<GoalRequest>,
+) -> ApiResult<serde_json::Value> {
+    let goal = request.goal.trim().to_owned();
+    if goal.chars().count() < 5 || goal.len() > 16_000 {
+        return Err(api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_goal",
+            "describe the goal in 5..16000 characters",
+        ));
+    }
+    let project_id = ProjectId::new(request.project_id).map_err(|error| {
+        api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_project_id",
+            error.to_string(),
+        )
+    })?;
+    let project = state
+        .store
+        .get_project(&project_id)
+        .await
+        .map_err(|error| {
+            api_error(
+                StatusCode::NOT_FOUND,
+                "project_not_found",
+                error.to_string(),
+            )
+        })?;
+    let root = state.settings_root.clone().ok_or_else(|| {
+        api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "planner_unavailable",
+            "the main planning agent is not configured",
+        )
+    })?;
+    let run = Run::new(
+        RunId::new(Uuid::new_v4().to_string()).expect("UUID is a valid run id"),
+        project_id,
+    );
+    state
+        .store
+        .create_run(&run)
+        .await
+        .map_err(|error| api_error(StatusCode::CONFLICT, "run_conflict", error.to_string()))?;
+    state
+        .store
+        .record_run_event(&run.id, "planning.started", &serde_json::json!({}))
+        .await
+        .map_err(store_error)?;
+    let store = state.store.clone();
+    let run_id = run.id.clone();
+    tokio::spawn(async move {
+        let outcome =
+            match harness_runtime::orchestrator::plan_goal(&root, &project, &goal, run_id.as_str())
+                .await
+            {
+                Ok(planned) => match store.propose_plan(&run_id, &planned.plan).await {
+                    Ok(_) => Ok(planned),
+                    Err(error) => Err(format!("main agent plan rejected: {error}")),
+                },
+                Err(reason) => Err(reason),
+            };
+        match outcome {
+            Ok(planned) => {
+                let _ = store
+                    .record_run_event(
+                        &run_id,
+                        "planning.completed",
+                        &serde_json::json!({
+                            "model": planned.model,
+                            "subtasks": planned.plan.tasks.len(),
+                            "input_tokens": planned.input_tokens,
+                            "output_tokens": planned.output_tokens,
+                            "cost_usd": planned.cost_usd,
+                        }),
+                    )
+                    .await;
+            }
+            Err(reason) => {
+                let reason: String = harness_core::redaction::redact(&reason)
+                    .chars()
+                    .take(300)
+                    .collect();
+                if let Ok(current) = store.get_run(&run_id).await
+                    && current.state == RunState::Planning
+                {
+                    let _ = store
+                        .transition_run(&run_id, current.revision, RunState::Failed, None)
+                        .await;
+                }
+                let _ = store
+                    .record_run_event(
+                        &run_id,
+                        "planning.failed",
+                        &serde_json::json!({ "reason": reason }),
+                    )
+                    .await;
+            }
+        }
+    });
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(serde_json::json!({ "run": run_response(run), "planning": "started" })),
+    ))
+}
+
+/// Main-agent planning status for a run: `planning`, `proposed` or `failed` (+ details).
+async fn goal_status(
+    State(state): State<ApiState>,
+    RoutePath(run_id): RoutePath<String>,
+) -> ApiResult<serde_json::Value> {
+    let run = load_run(&state.store, run_id).await?;
+    let event = state
+        .store
+        .latest_run_event(&run.id, "planning.")
+        .await
+        .map_err(store_error)?;
+    let Some((kind, mut detail)) = event else {
+        return Err(api_error(
+            StatusCode::NOT_FOUND,
+            "goal_not_found",
+            "this run was not planned by the main agent",
+        ));
+    };
+    let status = match kind.as_str() {
+        "planning.completed" => "proposed",
+        "planning.failed" => "failed",
+        _ => "planning",
+    };
+    if !detail.is_object() {
+        detail = serde_json::json!({});
+    }
+    detail["status"] = status.into();
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({ "run": run_response(run), "planning": detail })),
     ))
 }
 
@@ -946,21 +1083,6 @@ fn unix_seconds() -> i64 {
             i64::try_from(duration.as_secs()).unwrap_or(i64::MAX)
         })
 }
-fn load_or_create_token(path: &Path) -> Result<String, DaemonError> {
-    match std::fs::read_to_string(path) {
-        Ok(token) if !token.trim().is_empty() => Ok(token.trim().to_owned()),
-        Ok(_) => Err(DaemonError::TokenFile(std::io::Error::other(
-            "token file is empty",
-        ))),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            let token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
-            write_token(path, &token)?;
-            Ok(token)
-        }
-        Err(error) => Err(DaemonError::TokenFile(error)),
-    }
-}
-
 async fn update_task_priority(
     State(state): State<ApiState>,
     RoutePath((run_id, task_id)): RoutePath<(String, String)>,
@@ -1145,25 +1267,6 @@ async fn decide_approval(
             )
         })?;
     Ok((StatusCode::OK, Json(approval)))
-}
-
-#[cfg(unix)]
-fn write_token(path: &Path, token: &str) -> Result<(), DaemonError> {
-    use std::os::unix::fs::OpenOptionsExt;
-    let mut options = std::fs::OpenOptions::new();
-    let mut file = options
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(path)
-        .map_err(DaemonError::TokenFile)?;
-    std::io::Write::write_all(&mut file, token.as_bytes()).map_err(DaemonError::TokenFile)
-}
-
-#[cfg(windows)]
-fn write_token(path: &Path, token: &str) -> Result<(), DaemonError> {
-    // `%LOCALAPPDATA%` is per-user; the default inherited ACL restricts this file to that user.
-    std::fs::write(path, token).map_err(DaemonError::TokenFile)
 }
 
 pub fn default_data_dir() -> Result<PathBuf, DaemonError> {

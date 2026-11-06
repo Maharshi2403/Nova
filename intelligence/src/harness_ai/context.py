@@ -21,6 +21,11 @@ ROLE_PREFIXES = {
         "the supplied plan schema: requirements, assumptions, architecture alternatives "
         "and risks, and small tasks with objective acceptance criteria. Never include secrets. "
     ),
+    "orchestrator": (
+        "You are the main orchestration agent of a coding harness. Decompose the user's goal "
+        "into small subagent tasks, following the supplied rules exactly. Return only JSON "
+        "matching the supplied schema. Never include secrets. "
+    ),
     "coder": (
         "You are a coding worker. Return only JSON matching the supplied output schema. "
         "Work only on the assigned task using authorized broker tools. Completion is a claim; "
@@ -63,7 +68,7 @@ class Prompt:
 
 
 def build_prompt(
-    role: Literal["planner", "coder"],
+    role: Literal["planner", "orchestrator", "coder"],
     required: dict[str, Any],
     *,
     snippets: list[dict[str, Any]] | None = None,

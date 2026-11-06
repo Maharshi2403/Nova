@@ -19,8 +19,8 @@ async fn nonloopback_binding_rejected() {
 }
 
 #[tokio::test]
-async fn missing_auth_401() {
-    let response = router("test-token".into())
+async fn control_without_authentication_succeeds() {
+    let response = router()
         .oneshot(
             Request::get("/v1/control")
                 .body(axum::body::Body::empty())
@@ -28,12 +28,12 @@ async fn missing_auth_401() {
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(response.status(), StatusCode::OK);
 }
 
 #[tokio::test]
 async fn hostile_browser_origin_denied_even_with_bearer() {
-    let response = router("test-token".into())
+    let response = router()
         .oneshot(
             Request::get("/v1/control")
                 .header(header::AUTHORIZATION, "Bearer test-token")
@@ -48,7 +48,7 @@ async fn hostile_browser_origin_denied_even_with_bearer() {
 
 #[tokio::test]
 async fn healthz_minimal() {
-    let response = router("test-token".into())
+    let response = router()
         .oneshot(
             Request::get("/healthz")
                 .body(axum::body::Body::empty())
@@ -62,7 +62,7 @@ async fn healthz_minimal() {
 }
 
 #[tokio::test]
-async fn ephemeral_port_and_token_are_persisted() {
+async fn ephemeral_port_is_persisted_without_token() {
     let dir = tempdir().unwrap();
     let daemon = start(dir.path(), loopback_ephemeral()).await.unwrap();
     assert!(
@@ -70,15 +70,11 @@ async fn ephemeral_port_and_token_are_persisted() {
         "second daemon must not acquire the same state directory"
     );
     assert_ne!(daemon.address.port(), 0);
-    assert!(daemon.token_path.exists());
+    assert!(!dir.path().join("api-token").exists());
     assert!(daemon.discovery_path.exists());
     let request = Request::get("/v1/control")
-        .header(header::AUTHORIZATION, daemon.authorization_header())
         .body(axum::body::Body::empty())
         .unwrap();
-    let response = router(std::fs::read_to_string(&daemon.token_path).unwrap())
-        .oneshot(request)
-        .await
-        .unwrap();
+    let response = router().oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }

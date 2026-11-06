@@ -1,8 +1,8 @@
 # Native desktop dashboard
 
 Nova's macOS desktop client is a native SwiftUI island panel. It uses a bounded JSON stdin bridge
-to the Nova CLI; the CLI reads the daemon credential privately. No bearer token or
-API key appears in an argument or URL. The daemon still rejects browser origins.
+to the Nova CLI; the local daemon requires no bearer token or sign-in. Provider
+API keys remain private and do not appear in arguments or URLs. The daemon still rejects browser origins.
 There is no hosted dashboard or telemetry. Live models receive approved task context.
 
 The panel opens as a 210 × 44 point dark status pill below the top-center notch/island

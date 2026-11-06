@@ -34,6 +34,10 @@ enum Request {
     Remove {
         name: String,
     },
+    UpdateKey {
+        name: String,
+        key: String,
+    },
     Route {
         use_case: String,
         model: String,
@@ -89,7 +93,7 @@ fn handle(root: &Path, request: Request) -> Result<Value, CliError> {
             let settings = store.load().map_err(failure)?;
             let models:Vec<_>=settings.models.iter().map(|m|json!({"id":m.id,"name":m.display_name,"ready":m.ready(),"provider":m.provider,"source":m.metadata_source})).collect();
             Ok(
-                json!({"providers":settings.providers.iter().map(|p|json!({"id":p.id,"kind":p.kind,"base_url":p.base_url})).collect::<Vec<_>>(),"models":models,"routes":settings.routes,"run_cap_usd":settings.run_cap_microdollars as f64/1_000_000.,"daily_cap_usd":settings.daily_cap_microdollars as f64/1_000_000.}),
+                json!({"providers":settings.providers.iter().map(|p|json!({"id":p.id,"kind":p.kind,"base_url":p.base_url,"key_editable":matches!(p.credential, CredentialRef::Keychain { .. })})).collect::<Vec<_>>(),"models":models,"routes":settings.routes,"run_cap_usd":settings.run_cap_microdollars as f64/1_000_000.,"daily_cap_usd":settings.daily_cap_microdollars as f64/1_000_000.}),
             )
         }
         Request::Connect {
@@ -151,6 +155,23 @@ fn handle(root: &Path, request: Request) -> Result<Value, CliError> {
         Request::Remove { name } => Ok(
             json!({"message":providers::providers(root,providers::ProviderCommand::Remove{name}).map_err(failure)?}),
         ),
+        Request::UpdateKey { name, key } => {
+            validate_key(&key).map_err(failure)?;
+            harness_core::redaction::register_secret(&key);
+            let settings = store.load().map_err(failure)?;
+            let profile = settings
+                .providers
+                .iter()
+                .find(|p| p.id == name)
+                .ok_or_else(|| failure("unknown provider"))?;
+            let CredentialRef::Keychain { account } = &profile.credential else {
+                return Err(failure(
+                    "this provider uses an environment variable for its key",
+                ));
+            };
+            NativeVault.put(account, &key).map_err(failure)?;
+            Ok(json!({"message":format!("Updated API key for {name}.")}))
+        }
         Request::Route { use_case, model } if model.is_empty() => {
             let _: harness_core::domain::UseCase =
                 serde_json::from_value(Value::String(use_case.clone()))
