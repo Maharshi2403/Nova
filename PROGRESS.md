@@ -553,3 +553,30 @@ calls, push, or tags were used.
 
 Known security regression pending H-075: the control API has no bearer
 authentication. Until H-075, do not use this build with real provider keys.
+
+## H-074 — Find symbols without ripgrep
+
+Added a deterministic `retrieve_with(..., use_ripgrep: false)` seam and a
+bounded pure Rust symbol scan. It checks paths with `PathPolicy`, rejects secret
+and escaped paths, reads at most 2 MiB per file, and returns a 41-line window
+subject to the existing context byte cap. Tests cover a symbol after line 80,
+secret path exclusion, and a match beyond the broker's 1 MiB prefix.
+
+Verified on macOS (Apple Silicon), 2026-11-06:
+
+- `cargo test --locked --offline -p harness-runtime --test context` — 4 passed (new test initially failed to compile before implementation).
+- `cargo fmt --all --check` — PASS.
+- `cargo clippy --locked --offline --workspace --all-targets -- -D warnings` — PASS.
+- `cargo test --locked --offline --workspace` — PASS.
+- `cargo build --locked --offline --workspace` — PASS.
+- `uv run --offline --locked pytest` from `intelligence/` — 114 passed.
+- `UV_CACHE_DIR=/private/tmp/nova-uv-cache uv run --locked --offline ruff check .` from `intelligence/` — PASS.
+- `UV_CACHE_DIR=/private/tmp/nova-uv-cache uv run --locked --offline ruff format --check .` from `intelligence/` — PASS.
+- `UV_CACHE_DIR=/private/tmp/nova-uv-cache uv run --locked --offline mypy src` from `intelligence/` — PASS.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 3` — PASS.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 100` — PASS.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 1 --fault` — PASS.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 1 --cancel` — PASS.
+
+Python socket tests and the demos required loopback access outside the sandbox.
+No paid provider calls, push, or tags were used.

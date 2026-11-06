@@ -7,11 +7,13 @@ use crate::supervisor::ToolBroker;
 use harness_core::messages::ToolRequest;
 use serde::Serialize;
 use serde_json::json;
+use std::io::Read;
 use std::path::Path;
 use std::time::Duration;
 
 pub const MAX_CONTEXT_BYTES: usize = 64 * 1024;
 const MAX_INDEX_FILES: usize = 128;
+const MAX_FALLBACK_FILE_BYTES: u64 = 2 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Snippet {
@@ -32,6 +34,17 @@ pub async fn retrieve(
     candidates: &[String],
     symbols: &[String],
     byte_cap: usize,
+) -> Result<Context, PathError> {
+    retrieve_with(root, candidates, symbols, byte_cap, true).await
+}
+
+/// `use_ripgrep = false` forces the bounded Rust scanner for deterministic tests.
+pub async fn retrieve_with(
+    root: &Path,
+    candidates: &[String],
+    symbols: &[String],
+    byte_cap: usize,
+    use_ripgrep: bool,
 ) -> Result<Context, PathError> {
     let policy = PathPolicy::new(root)?;
     let mut paths = candidates
@@ -88,10 +101,14 @@ pub async fn retrieve(
             Ok(p) => p,
             Err(_) => continue,
         };
-        if !full.is_file() || std::fs::metadata(&full).map_or(true, |m| m.len() > 256 * 1024) {
+        let Ok(metadata) = std::fs::metadata(&full) else {
+            continue;
+        };
+        if !full.is_file() || metadata.len() > MAX_FALLBACK_FILE_BYTES {
             continue;
         }
         let mut line = 1;
+        let mut fallback_content = None;
         if !symbols.is_empty() {
             let mut argv = vec![
                 "rg".into(),
@@ -114,7 +131,15 @@ pub async fn retrieve(
                 continue;
             }
             argv.extend(["--".into(), full.to_string_lossy().into_owned()]);
-            match run_command(policy.root(), &argv, Duration::from_secs(2), 4096).await {
+            let search = if use_ripgrep && metadata.len() <= 256 * 1024 {
+                run_command(policy.root(), &argv, Duration::from_secs(2), 4096).await
+            } else {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "ripgrep disabled",
+                ))
+            };
+            match search {
                 Ok(output) if output.exit_code == Some(0) => {
                     line = output
                         .stdout
@@ -122,29 +147,61 @@ pub async fn retrieve(
                         .next()
                         .and_then(|v| v.parse::<u32>().ok())
                         .unwrap_or(1)
-                        .saturating_sub(5)
+                        .saturating_sub(20)
                         .max(1);
                 }
-                // Safe fallback when ripgrep is not installed: bounded broker read below.
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    if candidates.is_empty() {
+                    // The canonical path has passed the same deny, secret and symlink
+                    // checks as repo.read. Bound the scan even if the file grows after
+                    // metadata inspection, then retain only the matching window.
+                    let Ok(file) = std::fs::File::open(&full) else {
+                        continue;
+                    };
+                    let mut bytes = Vec::new();
+                    if file
+                        .take(MAX_FALLBACK_FILE_BYTES + 1)
+                        .read_to_end(&mut bytes)
+                        .is_err()
+                        || bytes.len() as u64 > MAX_FALLBACK_FILE_BYTES
+                        || bytes.contains(&0)
+                    {
                         continue;
                     }
+                    let text = String::from_utf8_lossy(&bytes);
+                    let lines: Vec<&str> = text.lines().collect();
+                    let Some(index) = lines.iter().position(|source_line| {
+                        symbols
+                            .iter()
+                            .filter(|symbol| !symbol.is_empty() && symbol.len() <= 128)
+                            .take(8)
+                            .any(|symbol| source_line.contains(symbol))
+                    }) else {
+                        continue;
+                    };
+                    let from = index.saturating_sub(20);
+                    let to = (index + 21).min(lines.len());
+                    line = u32::try_from(from + 1).unwrap_or(u32::MAX);
+                    fallback_content = Some(lines[from..to].join("\n"));
                 }
                 _ => continue,
             }
         }
-        let response = broker
-            .handle(&ToolRequest {
-                tool: "repo.read".into(),
-                arguments: json!({"path":path,"start_line":line,"max_lines":40})
-                    .as_object()
-                    .unwrap()
-                    .clone(),
-            })
-            .await;
-        if let Some(value) = response.result {
-            let mut content = value["content"].as_str().unwrap_or("").to_string();
+        let content = if let Some(content) = fallback_content {
+            Some(content)
+        } else {
+            broker
+                .handle(&ToolRequest {
+                    tool: "repo.read".into(),
+                    arguments: json!({"path":path,"start_line":line,"max_lines":41})
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                })
+                .await
+                .result
+                .and_then(|value| value["content"].as_str().map(str::to_owned))
+        };
+        if let Some(mut content) = content {
             if content.len() > remaining {
                 let mut end = remaining;
                 while !content.is_char_boundary(end) {
