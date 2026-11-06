@@ -70,9 +70,15 @@ fn allowed_table_matches_contract() {
         (Ready, &[Leased, Blocked, Cancelled]),
         (Leased, &[Running, RetryWait, Blocked, Cancelled]),
         (Running, &[Verifying, RetryWait, Blocked, Failed, Cancelled]),
-        (Verifying, &[Reviewing, RetryWait, Blocked, Failed]),
-        (Reviewing, &[Integrating, Blocked, Failed]),
-        (Integrating, &[Completed, Blocked, RetryWait, Failed]),
+        (
+            Verifying,
+            &[Reviewing, RetryWait, Blocked, Failed, Cancelled],
+        ),
+        (Reviewing, &[Integrating, Blocked, Failed, Cancelled]),
+        (
+            Integrating,
+            &[Completed, Blocked, RetryWait, Failed, Cancelled],
+        ),
         (RetryWait, &[Ready, Blocked, Failed, Cancelled]),
         (Blocked, &[Ready, Failed, Cancelled]),
         (Completed, &[]),

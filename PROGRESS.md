@@ -695,3 +695,27 @@ Verified on macOS (Apple Silicon), 2026-11-06:
 - `intelligence/.venv/bin/python scripts/build_desktop.py` — PASS.
 
 No paid provider calls, push, or tags were used.
+
+## H-079 — Always release leases and preserve cancellation state
+
+Pool jobs now attempt failure recording, task transition, lease release, and
+usage settlement independently, returning the combined errors. Cancelled jobs
+transition to `Cancelled`; the state table permits cancellation from verifying,
+reviewing, and integrating. Tests inject a failed failure-event write and
+confirm cleanup still runs, and verify that known usage settles on failure.
+
+Verified on macOS (Apple Silicon), 2026-11-06:
+
+- `cargo test --offline -p harness-runtime --test pool` — 4 passed, including all three required regressions.
+- `cargo test --locked --offline -p harness-core --test state` — 5 passed.
+- `cargo fmt --all --check` — PASS.
+- `cargo clippy --locked --offline --workspace --all-targets -- -D warnings` — PASS.
+- `cargo test --locked --offline --workspace` — PASS.
+- `cargo build --locked --offline --workspace` — PASS.
+- `uv run --offline --locked pytest` from `intelligence/` — 115 passed.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 3` — PASS.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 100` — PASS.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 1 --fault` — PASS.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 1 --cancel` — PASS.
+
+No paid provider calls, push, or tags were used.

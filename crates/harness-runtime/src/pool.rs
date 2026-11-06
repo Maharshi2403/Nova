@@ -118,47 +118,69 @@ impl WorkerPool {
                 .retain(|_, (_, sender)| !sender.is_closed());
             self.cancellations
                 .insert(lease_id.clone(), (run.clone(), sender));
+            let cancelled = receiver.clone();
             let future = execute(leased, lease_id.clone(), receiver);
             let store = store.clone();
             self.jobs.spawn(async move {
                 let _guard = guard;
                 let result = future.await;
+                let mut errors = Vec::new();
                 if let Err(reason) = &result {
-                    let current = store
-                        .get_task(&task_run, &task_id)
-                        .await
-                        .map_err(|e| e.to_string())?;
-                    if !current.state.is_terminal() && current.state != TaskState::Blocked {
-                        let category = harness_core::redaction::redact(reason);
-                        let category = category.chars().take(256).collect::<String>();
-                        store
-                            .record_task_failure(&task_run, &task_id, current.attempt, &category)
-                            .await
-                            .map_err(|e| e.to_string())?;
-                        store
-                            .transition_task(
-                                &task_run,
-                                &task_id,
-                                current.revision,
-                                TaskState::Blocked,
-                                None,
-                            )
-                            .await
-                            .map_err(|e| e.to_string())?;
+                    match store.get_task(&task_run, &task_id).await {
+                        Ok(current) if !current.state.is_terminal() => {
+                            let category = harness_core::redaction::redact(reason);
+                            let category = category.chars().take(256).collect::<String>();
+                            if let Err(e) = store
+                                .record_task_failure(
+                                    &task_run,
+                                    &task_id,
+                                    current.attempt,
+                                    &category,
+                                )
+                                .await
+                            {
+                                errors.push(format!("failure event: {e}"));
+                            }
+                            let destination = if *cancelled.borrow() {
+                                TaskState::Cancelled
+                            } else {
+                                TaskState::Blocked
+                            };
+                            if current.state != destination
+                                && let Err(e) = store
+                                    .transition_task(
+                                        &task_run,
+                                        &task_id,
+                                        current.revision,
+                                        destination,
+                                        None,
+                                    )
+                                    .await
+                            {
+                                errors.push(format!("task transition: {e}"));
+                            }
+                        }
+                        Ok(_) => {}
+                        Err(e) => errors.push(format!("task lookup: {e}")),
                     }
                 }
                 let end = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map_or(now, |d| d.as_secs() as i64);
-                store
-                    .release_lease(&lease_id, end)
-                    .await
-                    .map_err(|e| e.to_string())?;
-                store
-                    .settle_usage(&lease_id)
-                    .await
-                    .map_err(|e| e.to_string())?;
-                result
+                if let Err(e) = store.release_lease(&lease_id, end).await {
+                    errors.push(format!("lease release: {e}"));
+                }
+                if let Err(e) = store.settle_usage(&lease_id).await {
+                    errors.push(format!("usage settlement: {e}"));
+                }
+                if let Err(reason) = result {
+                    errors.insert(0, reason);
+                }
+                if errors.is_empty() {
+                    Ok(())
+                } else {
+                    Err(errors.join("; "))
+                }
             });
             count += 1;
         }
