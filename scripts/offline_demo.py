@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from itertools import pairwise
 from pathlib import Path
 
 
@@ -34,12 +35,16 @@ def main() -> None:
         repo.mkdir()
 
         def git(*argv: str) -> str:
-            return subprocess.check_output(["git", "-C", str(repo), *argv], text=True).strip()
+            return subprocess.check_output(
+                ["git", "-C", str(repo), *argv], text=True
+            ).strip()
 
         git("init", "-q", "-b", "main")
         git("config", "user.name", "Harness Fixture")
         git("config", "user.email", "fixture@example.test")
-        (repo / "README.md").write_text("Disposable offline fixture.\n", encoding="utf-8")
+        (repo / "README.md").write_text(
+            "Disposable offline fixture.\n", encoding="utf-8"
+        )
         git("add", "README.md")
         git("commit", "-qm", "fixture")
         environment = {
@@ -69,7 +74,9 @@ def main() -> None:
             while not (data / "daemon.json").exists():
                 assert daemon.poll() is None and time.monotonic() < deadline
                 time.sleep(0.05)
-            project = call("init", str(repo), "--name", "offline fixture", "--trust-local")
+            project = call(
+                "init", str(repo), "--name", "offline fixture", "--trust-local"
+            )
             run = call("run", project["id"])
             tasks, commands = [], []
             for n in range(args.tasks):
@@ -107,7 +114,9 @@ def main() -> None:
                 "project_id": project["id"],
                 "idea": "Demonstrate the real offline harness.",
                 "assumptions": [],
-                "requirements": ["Every fixture has evidence and an integration commit."],
+                "requirements": [
+                    "Every fixture has evidence and an integration commit."
+                ],
                 "architecture": {
                     "recommended": "Use isolated bounded task branches and real verification.",
                     "alternatives": [],
@@ -120,11 +129,10 @@ def main() -> None:
             commands_file.write_text(json.dumps(commands), encoding="utf-8")
             call("plan", run["id"], str(plan_file))
             call("approve", run["id"], "1")
+            call("config", "set", "python", sys.executable)
             call(
                 "execute",
                 run["id"],
-                "--python",
-                sys.executable,
                 "--test-commands",
                 str(commands_file),
             )
@@ -139,7 +147,12 @@ def main() -> None:
                     with sqlite3.connect(
                         (data / "harness.db").as_uri() + "?mode=ro", uri=True
                     ) as db:
-                        assert db.execute("SELECT COUNT(*) FROM git_artifacts").fetchone()[0] == 0
+                        assert (
+                            db.execute("SELECT COUNT(*) FROM git_artifacts").fetchone()[
+                                0
+                            ]
+                            == 0
+                        )
                     print(
                         "PASS: cancellation during verification retained changes without a commit"
                     )
@@ -169,7 +182,9 @@ def main() -> None:
                     break
                 assert time.monotonic() < deadline, "execution deadline exceeded"
                 time.sleep(0.05)
-            with sqlite3.connect((data / "harness.db").as_uri() + "?mode=ro", uri=True) as db:
+            with sqlite3.connect(
+                (data / "harness.db").as_uri() + "?mode=ro", uri=True
+            ) as db:
                 records = db.execute(
                     "SELECT task_commit_sha, integration_commit_sha FROM git_artifacts"
                 ).fetchall()
@@ -178,19 +193,19 @@ def main() -> None:
                 )
                 assert len({a for a, _ in records}) == args.tasks
                 assert (
-                    db.execute("SELECT COUNT(*) FROM test_results WHERE exit_code=0").fetchone()[0]
+                    db.execute(
+                        "SELECT COUNT(*) FROM test_results WHERE exit_code=0"
+                    ).fetchone()[0]
                     >= args.tasks
                 )
                 assert (
-                    db.execute("SELECT COUNT(*) FROM leases WHERE released_at IS NULL").fetchone()[
-                        0
-                    ]
+                    db.execute(
+                        "SELECT COUNT(*) FROM leases WHERE released_at IS NULL"
+                    ).fetchone()[0]
                     == 0
                 )
             events = call("logs", run["id"], "--limit", "1000")
-            assert all(
-                a["sequence"] < b["sequence"] for a, b in zip(events, events[1:], strict=False)
-            )
+            assert all(a["sequence"] < b["sequence"] for a, b in pairwise(events))
             assert git("status", "--porcelain") == ""
             assert git("rev-list", "--count", "HEAD") == "1"
             print(

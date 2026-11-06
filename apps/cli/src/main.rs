@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 mod desktop;
 mod providers;
+mod settings;
 mod startup;
 mod ui;
 
@@ -43,6 +44,16 @@ enum Command {
         #[command(subcommand)]
         command: providers::ModelCommand,
     },
+    /// Save daemon-owned execution settings.
+    Config {
+        #[command(subcommand)]
+        command: settings::ConfigCommand,
+    },
+    /// Set saved live spend ceilings in USD.
+    Budget {
+        #[command(subcommand)]
+        command: settings::BudgetCommand,
+    },
     /// Start Nova in the background, or connect to the running service.
     Start,
     /// Stop Nova safely when no runs are active.
@@ -61,8 +72,6 @@ enum Command {
     /// Execute an approved run (offline mock by default; explicit live opt-in).
     Execute {
         run_id: String,
-        #[arg(long)]
-        python: Option<PathBuf>,
         /// JSON array of exact argv arrays approved for verifier execution.
         #[arg(long)]
         test_commands: PathBuf,
@@ -73,8 +82,12 @@ enum Command {
         /// Use the pinned last commit in isolated worktrees; leave unfinished files untouched.
         #[arg(long)]
         committed_snapshot: bool,
-        #[arg(long, requires = "live")]
-        model_config: Option<PathBuf>,
+        /// Optional per-execution USD ceiling, no greater than the saved run ceiling.
+        #[arg(long)]
+        run_cap: Option<f64>,
+        /// Optional per-execution USD ceiling, no greater than the saved daily ceiling.
+        #[arg(long)]
+        daily_cap: Option<f64>,
     },
     Init {
         repo: PathBuf,
@@ -224,6 +237,12 @@ fn execute(cli: Cli) -> Result<String, CliError> {
         Command::Models { command } => {
             return providers::models(&data_dir, command).map_err(CliError::Startup);
         }
+        Command::Config { command } => {
+            return settings::config(&data_dir, command, cli.json).map_err(CliError::Startup);
+        }
+        Command::Budget { command } => {
+            return settings::budget(&data_dir, command, cli.json).map_err(CliError::Startup);
+        }
         other => other,
     };
     let client = Client::from_data_dir(&data_dir)?;
@@ -233,6 +252,8 @@ fn execute(cli: Cli) -> Result<String, CliError> {
         | Command::Routes { .. }
         | Command::Providers { .. }
         | Command::Models { .. }
+        | Command::Config { .. }
+        | Command::Budget { .. }
         | Command::Start
         | Command::Stop
         | Command::Serve => {
@@ -252,44 +273,25 @@ fn execute(cli: Cli) -> Result<String, CliError> {
         )?,
         Command::Execute {
             run_id,
-            python,
             test_commands,
             concurrency,
             live,
             committed_snapshot,
-            model_config,
+            run_cap,
+            daily_cap,
         } => {
-            let python = harness_runtime::provider_config::ProviderStore::new(&data_dir)
-                .python(python)
-                .map_err(CliError::Startup)?;
             let commands = std::fs::read_to_string(test_commands).map_err(CliError::Input)?;
             let commands: Vec<Vec<String>> =
                 serde_json::from_str(&commands).map_err(CliError::DiscoveryJson)?;
-            let config = model_config
-                .map(|p| {
-                    std::fs::read_to_string(p)
-                        .map_err(CliError::Input)
-                        .and_then(|s| {
-                            serde_json::from_str::<serde_json::Value>(&s)
-                                .map_err(CliError::DiscoveryJson)
-                        })
-                })
-                .transpose()?;
-            let config = if live && config.is_none() {
-                Some(
-                    serde_json::to_value(
-                        harness_runtime::provider_config::ProviderStore::new(&data_dir)
-                            .load()
-                            .map_err(CliError::Startup)?
-                            .live_config()
-                            .map_err(CliError::Startup)?,
-                    )
-                    .map_err(CliError::DiscoveryJson)?,
-                )
-            } else {
-                config
-            };
-            client.request("POST", &format!("/v1/runs/{run_id}/execute"), Some(serde_json::json!({"python":python, "allowed_test_commands":commands, "concurrency":concurrency,"live":live,"model_config":config,"committed_snapshot":committed_snapshot})))?
+            let run_cap = run_cap
+                .map(settings::microdollars)
+                .transpose()
+                .map_err(CliError::Startup)?;
+            let daily_cap = daily_cap
+                .map(settings::microdollars)
+                .transpose()
+                .map_err(CliError::Startup)?;
+            client.request("POST", &format!("/v1/runs/{run_id}/execute"), Some(serde_json::json!({"allowed_test_commands":commands, "concurrency":concurrency,"live":live,"run_cap_microdollars":run_cap,"daily_cap_microdollars":daily_cap,"committed_snapshot":committed_snapshot})))?
         }
         Command::Init {
             repo,

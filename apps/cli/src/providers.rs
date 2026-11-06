@@ -133,7 +133,8 @@ pub fn providers(root: &Path, command: ProviderCommand) -> Result<String, String
                 s.providers.push(profile.clone());
                 s.models.extend(models);
                 if python.is_some() {
-                    s.python = python;
+                    s.python = python.clone();
+                    s.record_audit("python.set", serde_json::json!({"path":python}));
                 }
                 Ok(())
             });

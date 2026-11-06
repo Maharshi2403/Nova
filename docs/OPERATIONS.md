@@ -19,7 +19,7 @@ values. Put `--daemon-dir PATH` before the command when needed; Windows uses `.e
    `[["/absolute/venv/bin/python","-m","pytest","-q"]]`. Windows uses the absolute
    `Scripts/python.exe` path. Approving a test runner/interpreter authorizes code
    execution with your privileges in trusted-local mode.
-7. `nova execute RUN_ID --python ABSOLUTE_INTELLIGENCE_PYTHON --test-commands approved-tests.json`
+7. `nova config set python ABSOLUTE_INTELLIGENCE_PYTHON` (once), then `nova execute RUN_ID --test-commands approved-tests.json`
    runs the synthetic mock coder. Its candidate paths must be exact fixture files;
    it cannot solve arbitrary coding tasks. See live mode for actual coding.
 
@@ -58,9 +58,11 @@ credentials; only a dedicated provider helper gets its selected connection's key
 nova execute RUN_ID --test-commands approved-tests.json --live
 ```
 
-The saved Python interpreter is reused (or pass `--python ABSOLUTE_PYTHON`). An
-advanced reviewed `--model-config FILE` overrides the generated registry/routes;
-`config/live.example.json` is deliberately unavailable until edited. Legacy native
+The daemon selects the saved or bundled Python interpreter. Set a custom one with
+`nova config set python ABSOLUTE_PYTHON` before execution. Live routing, prices,
+and spend ceilings come from saved provider settings. Set ceilings with
+`nova budget set --run USD --daily USD`; `nova execute --run-cap USD --daily-cap USD`
+can lower them for one launch. Legacy native
 OpenAI/Anthropic configurations can use daemon-scoped OPENAI_API_KEY or
 ANTHROPIC_API_KEY when no saved profile exists. Keys never belong in argv or plans.
 

@@ -79,8 +79,8 @@ and discovers models available to your account. Use IDs printed by `models list`
 OpenAI-compatible services (including OpenRouter and local servers) use
 `nova providers add NAME --kind compatible --base-url URL`; `openrouter` is also a
 preset. See [provider setup](docs/PROVIDERS.md) for metadata and routing details.
-Live coding requires `--live` and task/run/daily budgets. Saved providers replace
-the need for a model-config file; advanced `--model-config FILE` remains supported.
+Live coding requires `--live` and task/run/daily budgets. The daemon uses saved
+provider settings; `nova budget set --run USD --daily USD` sets spend ceilings.
 Never put credentials in plans or config files.
 Paid-provider smoke testing has not been performed as part of this build.
 

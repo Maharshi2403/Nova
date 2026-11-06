@@ -394,13 +394,14 @@ async fn healthz() -> Json<serde_json::Value> {
 struct ExecuteRequest {
     #[serde(default)]
     committed_snapshot: bool,
-    python: PathBuf,
     allowed_test_commands: Vec<Vec<String>>,
     concurrency: usize,
     #[serde(default)]
     live: bool,
     #[serde(default)]
-    model_config: Option<harness_runtime::live::LiveConfig>,
+    run_cap_microdollars: Option<u64>,
+    #[serde(default)]
+    daily_cap_microdollars: Option<u64>,
 }
 
 async fn execute_run(
@@ -408,14 +409,49 @@ async fn execute_run(
     RoutePath(run_id): RoutePath<String>,
     Json(request): Json<ExecuteRequest>,
 ) -> ApiResult<serde_json::Value> {
-    let run = load_run(&state.store, run_id).await?;
-    if request.live != request.model_config.is_some() {
+    let settings_root = state.settings_root.as_ref().ok_or_else(|| {
+        api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "settings_unavailable",
+            "daemon settings are not configured",
+        )
+    })?;
+    let settings_store = harness_runtime::provider_config::ProviderStore::new(settings_root);
+    let settings = settings_store
+        .load()
+        .map_err(|error| api_error(StatusCode::CONFLICT, "invalid_settings", error))?;
+    let run_cap = request
+        .run_cap_microdollars
+        .unwrap_or(settings.run_cap_microdollars);
+    let daily_cap = request
+        .daily_cap_microdollars
+        .unwrap_or(settings.daily_cap_microdollars);
+    if run_cap == 0
+        || daily_cap == 0
+        || run_cap > daily_cap
+        || run_cap > settings.run_cap_microdollars
+        || daily_cap > settings.daily_cap_microdollars
+    {
         return Err(api_error(
             StatusCode::UNPROCESSABLE_ENTITY,
-            "live_opt_in_required",
-            "live flag and model configuration must be supplied together",
+            "spend_cap_exceeds_saved_default",
+            "request spend caps must be positive and no greater than saved defaults",
         ));
     }
+    let run = load_run(&state.store, run_id).await?;
+    let python = settings_store
+        .python_for_daemon()
+        .map_err(|error| api_error(StatusCode::SERVICE_UNAVAILABLE, "python_unavailable", error))?;
+    let live = if request.live {
+        let mut config = settings.live_config().map_err(|error| {
+            api_error(StatusCode::UNPROCESSABLE_ENTITY, "live_unavailable", error)
+        })?;
+        config.run_cap_microdollars = run_cap;
+        config.daily_cap_microdollars = daily_cap;
+        Some(config)
+    } else {
+        None
+    };
     let engine = state.engine.ok_or_else(|| {
         api_error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -423,7 +459,7 @@ async fn execute_run(
             "execution runtime is not configured",
         )
     })?;
-    engine.launch_configured(state.store, run.id.clone(), request.python, request.allowed_test_commands, request.concurrency, harness_runtime::engine::LaunchMode{live:request.model_config,committed_snapshot:request.committed_snapshot}).await.map_err(|error| api_error(StatusCode::CONFLICT, "execution_denied", if error.starts_with("working tree has uncommitted changes") { "Repository has uncommitted changes. Use committed snapshot in Execute, or commit/stash changes. Your files are untouched." } else { error.as_str() }))?;
+    engine.launch_configured(state.store, run.id.clone(), python, request.allowed_test_commands, request.concurrency, harness_runtime::engine::LaunchMode{live,committed_snapshot:request.committed_snapshot}).await.map_err(|error| api_error(StatusCode::CONFLICT, "execution_denied", if error.starts_with("working tree has uncommitted changes") { "Repository has uncommitted changes. Use committed snapshot in Execute, or commit/stash changes. Your files are untouched." } else { error.as_str() }))?;
     Ok((
         StatusCode::ACCEPTED,
         Json(

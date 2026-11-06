@@ -29,6 +29,52 @@ async fn missing_token_401() {
 }
 
 #[tokio::test]
+async fn execute_rejects_caller_interpreter() {
+    let (_data, store, _repo) = fixture().await;
+    let app = api_router(TOKEN.into(), store);
+    let (status, _) = send(
+        &app,
+        local(Request::post("/v1/runs/missing/execute"))
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                json!({"python":"/tmp/attacker","allowed_test_commands":[],"concurrency":1})
+                    .to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn request_cap_cannot_exceed_saved_cap() {
+    let (data, store, _repo) = fixture().await;
+    let app = harness_daemon::api_router_with_settings(
+        TOKEN.into(),
+        store,
+        None,
+        data.path().to_path_buf(),
+    );
+    let request = |cap: u64| {
+        local(Request::post("/v1/runs/missing/execute"))
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                json!({"allowed_test_commands":[],"concurrency":1,"run_cap_microdollars":cap})
+                    .to_string(),
+            ))
+            .unwrap()
+    };
+    assert_eq!(
+        send(&app, request(5_000_001)).await.0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(
+        send(&app, request(4_000_000)).await.0,
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[tokio::test]
 async fn rebinding_host_get_403() {
     let (_data, store, _repo) = fixture().await;
     let response = api_router(TOKEN.into(), store)

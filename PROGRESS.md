@@ -609,3 +609,35 @@ Verified on macOS (Apple Silicon), 2026-11-06:
 
 No paid provider calls, push, or tags were used. H-076 remains necessary:
 the authenticated execute request still accepts a caller-selected interpreter.
+
+## H-076 — Daemon-owned interpreter and spend ceilings
+
+The execute API now rejects caller-supplied `python` and `model_config` fields.
+The daemon resolves its interpreter from saved or bundled settings and derives
+live routing and prices from saved provider settings. Optional request run/daily
+caps may only lower the saved ceilings. Operators set the interpreter with
+`nova config set python PATH` and ceilings with
+`nova budget set --run USD --daily USD`. Each change is recorded atomically in
+the bounded settings audit history. Provider setup also audits interpreter
+changes. The worker environment regression test executes a process and observes
+only the selected provider key name among credential-shaped variables.
+
+Verified on macOS (Apple Silicon), 2026-11-06:
+
+- `cargo test --locked --offline -p harness-daemon --test api` — 20 passed; `execute_rejects_caller_interpreter` first failed with 404 before the fix, then passed with 422.
+- `cargo test --locked --offline -p harness-cli --test settings` — 2 passed.
+- `cargo test --locked --offline -p harness-runtime --test worker` — 8 passed.
+- `cargo fmt --all --check` — PASS.
+- `cargo clippy --locked --offline --workspace --all-targets -- -D warnings` — PASS.
+- `cargo test --locked --offline --workspace` — PASS.
+- `cargo build --locked --offline --workspace` — PASS.
+- `uv run --offline --locked pytest` from `intelligence/` — 114 passed.
+- Python ruff lint/format and mypy in `intelligence/` — PASS.
+- `UV_CACHE_DIR=/private/tmp/nova-uv-cache uv run --locked --offline --project intelligence ruff check scripts/offline_demo.py` — PASS after formatting the touched demo.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 3` — PASS.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 100` — PASS.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 1 --fault` — PASS.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 1 --cancel` — PASS.
+- `intelligence/.venv/bin/python scripts/build_desktop.py` — PASS.
+
+No paid provider calls, push, or tags were used.

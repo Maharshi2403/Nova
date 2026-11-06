@@ -93,6 +93,31 @@ async fn environment_is_sanitized() {
 }
 
 #[tokio::test]
+async fn adapter_env_contains_only_scoped_key() {
+    use harness_runtime::provider_config::{CredentialRef, ProviderKind, ProviderProfile};
+    let profile = ProviderProfile {
+        id: "selected".into(),
+        kind: ProviderKind::Compatible,
+        base_url: "http://127.0.0.1:8080/v1".into(),
+        credential: CredentialRef::Environment {
+            variable: "SELECTED_KEY".into(),
+        },
+    };
+    let mut spec = WorkerSpec::python_worker(python());
+    spec.args = [
+        "-c",
+        "import os,sys; sys.stderr.write(','.join(sorted(k for k in os.environ if any(s in k.upper() for s in ('KEY','TOKEN','SECRET')))))",
+    ]
+    .map(Into::into)
+    .to_vec();
+    spec.env = profile.adapter_env("fixture-only");
+    let worker = Worker::spawn(&spec).unwrap();
+    let report = worker.shutdown(T).await;
+    assert_eq!(report.code, Some(0), "{report:?}");
+    assert_eq!(report.stderr, "NOVA_PROVIDER_API_KEY");
+}
+
+#[tokio::test]
 async fn missing_executable_is_a_spawn_error() {
     let spec = WorkerSpec::python_worker("definitely-not-a-real-binary-xyz");
     assert!(matches!(

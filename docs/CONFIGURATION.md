@@ -9,10 +9,11 @@
 | CLI | `nova stop` | Authenticated idle shutdown; refuses active runs |
 | CLI | `--json` | JSON output; otherwise pretty JSON |
 | init | `--trust-local` | Explicit unsandboxed trusted-local authorization |
-| execute | `--python PATH` | Absolute installed intelligence venv interpreter |
+| config | `nova config set python PATH` | Persist and audit the daemon's absolute worker interpreter |
+| budget | `nova budget set --run USD --daily USD` | Persist and audit positive live spend ceilings |
 | execute | `--test-commands FILE` | JSON array of exact accepted test argv arrays |
 | execute | `--concurrency 1..2` | Default two; daemon-wide execution capacity two |
-| execute | `--live [--model-config FILE]` | `--live` enables saved providers; model-config is optional |
+| execute | `--live [--run-cap USD] [--daily-cap USD]` | `--live` uses saved providers and prices; request caps may only lower saved ceilings |
 | daemon env | `OPENAI_API_KEY` | Only for explicitly opted-in provider calls |
 | tests | `HARNESS_PYTHON` | Optional test worker interpreter override |
 
@@ -22,8 +23,8 @@ daemon does not automatically load that YAML or apply every library setting. Use
 the explicit options above. Changing the example cannot enable network, larger
 concurrency or automatic push. Live mode is explicit; the pool caps capacity at two.
 
-`config/live.example.json` has a deliberately unavailable placeholder. Registry
-entries specify logical ID, actual provider model ID, provider, tool capabilities,
+`config/live.example.json` illustrates the registry schema; execution builds its
+registry from saved provider settings. Registry entries specify logical ID, actual provider model ID, provider, tool capabilities,
 structured output, context/output limits, prices per million tokens, availability
 and privacy. Routing low/medium/high fields reference logical IDs. High-risk tasks
 use the high route. Missing/unavailable/incompatible routes fail closed.

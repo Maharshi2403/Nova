@@ -141,7 +141,11 @@ fn handle(root: &Path, request: Request) -> Result<Value, CliError> {
                 }
                 s.providers.push(profile.clone());
                 s.models.extend(models);
-                s.python = Some(python);
+                s.python = Some(python.clone());
+                s.record_audit(
+                    "python.set",
+                    json!({"path":python,"source":"desktop_provider_connect"}),
+                );
                 Ok(())
             });
             if result.is_err() {
@@ -260,24 +264,12 @@ fn handle(root: &Path, request: Request) -> Result<Value, CliError> {
                     }
                 }
             }
-            let python = store.python(None).map_err(failure)?;
-            let config = if live {
-                Some(
-                    store
-                        .load()
-                        .map_err(failure)?
-                        .live_config()
-                        .map_err(failure)?,
-                )
-            } else {
-                None
-            };
             api(
                 &client,
                 "POST",
                 &format!("/v1/runs/{run_id}/execute"),
                 Some(
-                    json!({"python":python,"allowed_test_commands":commands,"concurrency":2,"live":live,"model_config":config,"committed_snapshot":committed_snapshot}),
+                    json!({"allowed_test_commands":commands,"concurrency":2,"live":live,"committed_snapshot":committed_snapshot}),
                 ),
             )
         }

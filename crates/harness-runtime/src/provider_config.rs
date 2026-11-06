@@ -152,6 +152,16 @@ pub struct ProviderSettings {
     pub python: Option<PathBuf>,
     pub run_cap_microdollars: u64,
     pub daily_cap_microdollars: u64,
+    #[serde(default)]
+    pub audit: Vec<SettingsAudit>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SettingsAudit {
+    pub at_unix: u64,
+    pub action: String,
+    pub detail: serde_json::Value,
 }
 impl Default for ProviderSettings {
     fn default() -> Self {
@@ -163,13 +173,24 @@ impl Default for ProviderSettings {
             python: None,
             run_cap_microdollars: 5_000_000,
             daily_cap_microdollars: 10_000_000,
+            audit: vec![],
         }
     }
 }
 impl ProviderSettings {
     fn validate(&self) -> Result<(), String> {
-        if self.version != 1 || self.providers.len() > 64 || self.models.len() > 5000 {
+        if self.version != 1
+            || self.providers.len() > 64
+            || self.models.len() > 5000
+            || self.audit.len() > 1000
+        {
             return Err("unsupported or oversized provider settings".into());
+        }
+        if self.run_cap_microdollars == 0
+            || self.daily_cap_microdollars == 0
+            || self.run_cap_microdollars > self.daily_cap_microdollars
+        {
+            return Err("saved spend caps must be positive with run at most daily".into());
         }
         let mut providers = HashSet::new();
         for profile in &self.providers {
@@ -207,6 +228,20 @@ impl ProviderSettings {
             return Err("route refers to missing model".into());
         }
         Ok(())
+    }
+
+    pub fn record_audit(&mut self, action: &str, detail: serde_json::Value) {
+        if self.audit.len() == 1000 {
+            self.audit.remove(0);
+        }
+        let at_unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |duration| duration.as_secs());
+        self.audit.push(SettingsAudit {
+            at_unix,
+            action: action.into(),
+            detail,
+        });
     }
 }
 pub struct ProviderStore {
@@ -285,6 +320,19 @@ impl ProviderStore {
         Ok(settings)
     }
     pub fn python(&self, explicit: Option<PathBuf>) -> Result<PathBuf, String> {
+        self.resolve_python(explicit, true)
+    }
+
+    /// Resolve only daemon-owned settings and installed runtimes, never a request or shell override.
+    pub fn python_for_daemon(&self) -> Result<PathBuf, String> {
+        self.resolve_python(None, false)
+    }
+
+    fn resolve_python(
+        &self,
+        explicit: Option<PathBuf>,
+        allow_env: bool,
+    ) -> Result<PathBuf, String> {
         let saved = self.load()?.python;
         let bundle = std::env::current_exe().ok().and_then(|p| {
             let parent = p.parent()?;
@@ -299,10 +347,14 @@ impl ProviderStore {
         );
         let candidate = explicit
             .or(saved)
-            .or_else(|| std::env::var_os("NOVA_PYTHON").map(PathBuf::from))
+            .or_else(|| {
+                allow_env
+                    .then(|| std::env::var_os("NOVA_PYTHON").map(PathBuf::from))
+                    .flatten()
+            })
             .or_else(|| bundle.filter(|p| p.is_file()))
             .or_else(|| source.is_file().then_some(source))
-            .ok_or("intelligence Python not found; pass --python once")?;
+            .ok_or("intelligence Python not found; run `nova config set python PATH`")?;
         if !candidate.is_absolute() || !candidate.is_file() {
             return Err("configured intelligence Python must be an existing absolute path".into());
         }

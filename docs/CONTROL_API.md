@@ -25,7 +25,7 @@ capacity. Execution 202 means accepted, not verified completion.
 | POST `/v1/plans` | `{run_id,plan}` validates schema/DAG and persists version |
 | GET `/v1/plans/{run}/{version}` | Inspect proposal/approval |
 | POST `/v1/plans/{run}/{version}/approve` | Approve version; materialize tasks |
-| POST `/v1/runs/{run}/execute` | `{python,allowed_test_commands,concurrency,live:false,model_config:null}` |
+| POST `/v1/runs/{run}/execute` | `{allowed_test_commands,concurrency,live:false,committed_snapshot:false,run_cap_microdollars:null,daily_cap_microdollars:null}`. Interpreter and live registry come from daemon settings; optional request caps can only lower saved ceilings. Unknown fields, including `python` and `model_config`, return 422. |
 | POST `/v1/runs/{run}/pause` | Prevent new leases; assigned work continues |
 | POST `/v1/runs/{run}/resume` | Restore eligibility; re-execute if loop drained |
 | POST `/v1/runs/{run}/cancel` | Cancel eligible tasks/signal workers |

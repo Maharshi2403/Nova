@@ -35,7 +35,8 @@ HTTP proxies are disabled. Only explicitly configured compatible connections can
 use custom endpoints; native providers use official URLs. Local servers still need
 a nonempty key (use their documented token). Gateways receive your task context.
 
-`--python PATH` saves an installed Nova intelligence interpreter once. Current
+`nova config set python PATH` saves and audits an installed Nova intelligence
+interpreter. `nova providers add --python PATH` also saves and audits it. Current
 source installations and extracted bundles with a sibling `runtime` venv are found
 automatically. `--skip-discovery` saves a connection without a network request;
 it does not claim any model is available. On Linux or headless setups use
@@ -76,9 +77,10 @@ planning/review passes. Include report paths and executable acceptance as needed
 Execute an approved run using `nova execute RUN_ID --live --test-commands FILE`.
 Saved settings default to $5 per run and $10 per UTC day; each approved task still
 has its own cost cap. `providers.json` stores these integer microdollar caps and
-public routing/model metadata. Stop Nova before manual settings edits. Advanced
-`--model-config FILE` can override registry/routing/budgets; it cannot redirect a
-saved provider's key to a new endpoint. Missing keys/capabilities reject execution.
+public routing/model metadata. Set or change ceilings with
+`nova budget set --run USD --daily USD`; one launch may request lower caps.
+The daemon builds the live registry from saved settings and never accepts a
+request-supplied model registry. Missing keys/capabilities reject execution.
 Credentials are resolved by Rust and sent only to the chosen helper; coder and
 verifier processes never receive them. Every paid attempt/retry remains subject
 to grants, tool limits and persistent spend reservations. No automatic provider
