@@ -12,7 +12,9 @@ use std::{
 fn running(directory: &Path) -> Result<Option<Client>, CliError> {
     let client = match Client::from_data_dir(directory) {
         Ok(client) => client,
-        Err(CliError::Discovery(e)) if e.kind() == std::io::ErrorKind::NotFound => {
+        Err(CliError::Discovery(e) | CliError::Token(e))
+            if e.kind() == std::io::ErrorKind::NotFound =>
+        {
             return Ok(None);
         }
         Err(error) => return Err(error),
@@ -21,14 +23,13 @@ fn running(directory: &Path) -> Result<Option<Client>, CliError> {
         Ok(response) => {
             let status: serde_json::Value =
                 serde_json::from_str(&response).map_err(CliError::DiscoveryJson)?;
-            if status["status"] != "ok" {
-                return Err(CliError::Startup(
-                    "unexpected local service response".into(),
-                ));
+            if status["status"] != "authenticated" {
+                return Err(CliError::Startup("another process owns port".into()));
             }
             Ok(Some(client))
         }
         Err(CliError::Connect(_)) => Ok(None),
+        Err(CliError::Rejected(_)) => Err(CliError::Startup("another process owns port".into())),
         Err(error) => Err(error),
     }
 }

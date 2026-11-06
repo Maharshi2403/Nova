@@ -11,14 +11,37 @@ use serde_json::{Value, json};
 use tempfile::TempDir;
 use tower::ServiceExt;
 
+const TOKEN: &str = "test-token";
+
 #[tokio::test]
-async fn shutdown_without_authentication_reaches_lifecycle_check() {
+async fn missing_token_401() {
     let (_data, store, _repo) = fixture().await;
-    let response = api_router(store)
-        .oneshot(Request::post("/v1/shutdown").body(Body::empty()).unwrap())
+    let response = api_router(TOKEN.into(), store)
+        .oneshot(
+            Request::post("/v1/shutdown")
+                .header(header::HOST, "localhost:8080")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn rebinding_host_get_403() {
+    let (_data, store, _repo) = fixture().await;
+    let response = api_router(TOKEN.into(), store)
+        .oneshot(
+            Request::get("/v1/dashboard")
+                .header(header::HOST, "evil.example:8080")
+                .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]
@@ -42,7 +65,7 @@ async fn subscriber_resumes_after_disconnect_without_duplicates() {
             .await
             .unwrap();
     });
-    let app = api_router(store);
+    let app = api_router(TOKEN.into(), store);
     let response = app
         .clone()
         .oneshot(
@@ -87,7 +110,7 @@ async fn event_long_poll_rejects_unbounded_wait() {
         .create_run(&Run::new(RunId::new("r").unwrap(), p.id))
         .await
         .unwrap();
-    let response = api_router(store)
+    let response = api_router(TOKEN.into(), store)
         .oneshot(
             local(Request::get("/v1/events?run_id=r&wait_seconds=26"))
                 .body(Body::empty())
@@ -100,6 +123,8 @@ async fn event_long_poll_rejects_unbounded_wait() {
 
 fn local(request: axum::http::request::Builder) -> axum::http::request::Builder {
     request
+        .header(header::HOST, "localhost:8080")
+        .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
 }
 
 async fn fixture() -> (TempDir, Store, TempDir) {
@@ -167,7 +192,7 @@ fn valid_plan(project_id: &str) -> Value {
 #[tokio::test]
 async fn create_project_api() {
     let (_data, store, repository) = fixture().await;
-    let app = api_router(store);
+    let app = api_router(TOKEN.into(), store);
     let body = json!({
         "name": "Demo",
         "repo_path": repository.path(),
@@ -220,7 +245,7 @@ async fn invalid_plan_422() {
             "tasks": []
         }
     });
-    let response = api_router(store)
+    let response = api_router(TOKEN.into(), store)
         .oneshot(
             local(Request::post("/v1/plans"))
                 .header(header::CONTENT_TYPE, "application/json")
@@ -252,7 +277,7 @@ async fn plan_approval_required() {
         .create_run(&Run::new(run_id.clone(), project_id))
         .await
         .unwrap();
-    let response = api_router(store.clone())
+    let response = api_router(TOKEN.into(), store.clone())
         .oneshot(
             local(Request::post("/v1/plans"))
                 .header(header::CONTENT_TYPE, "application/json")
@@ -306,7 +331,7 @@ async fn running_fixture() -> (TempDir, Store, TempDir, RunId) {
 #[tokio::test]
 async fn repeated_control_cycles_and_concurrent_ticks_remain_valid() {
     let (_data, store, _repo, run) = running_fixture().await;
-    let app = api_router(store.clone());
+    let app = api_router(TOKEN.into(), store.clone());
     for _ in 0..3 {
         for action in ["pause", "resume"] {
             let response = app
@@ -335,7 +360,7 @@ async fn repeated_control_cycles_and_concurrent_ticks_remain_valid() {
 #[tokio::test]
 async fn pause_prevents_new_dispatch() {
     let (_data, store, _repository, run_id) = running_fixture().await;
-    let app = api_router(store.clone());
+    let app = api_router(TOKEN.into(), store.clone());
     let pause = app
         .clone()
         .oneshot(
@@ -366,7 +391,7 @@ async fn pause_prevents_new_dispatch() {
 #[tokio::test]
 async fn resume_releases_ready() {
     let (_data, store, _repository, run_id) = running_fixture().await;
-    let app = api_router(store.clone());
+    let app = api_router(TOKEN.into(), store.clone());
     app.clone()
         .oneshot(
             local(Request::post(format!("/v1/runs/{run_id}/pause")))
@@ -399,7 +424,7 @@ async fn resume_releases_ready() {
 #[tokio::test]
 async fn status_matches_db() {
     let (_data, store, _repository, run_id) = running_fixture().await;
-    let response = api_router(store.clone())
+    let response = api_router(TOKEN.into(), store.clone())
         .oneshot(
             local(Request::get(format!("/v1/runs/{run_id}")))
                 .body(Body::empty())
@@ -420,7 +445,7 @@ async fn status_matches_db() {
 async fn stale_priority_http_409() {
     let (_data, store, _repository, run_id) = running_fixture().await;
     let body = json!({"revision": 0, "manual_priority": 90}).to_string();
-    let response = api_router(store)
+    let response = api_router(TOKEN.into(), store)
         .oneshot(
             local(Request::patch(format!(
                 "/v1/tasks/{run_id}/task-1/priority"
@@ -437,7 +462,7 @@ async fn stale_priority_http_409() {
 #[tokio::test]
 async fn browser_origin_approval_denied() {
     let (_data, store, _repository) = fixture().await;
-    let response = api_router(store)
+    let response = api_router(TOKEN.into(), store)
         .oneshot(
             Request::post("/v1/approvals/not-real/decision")
                 .header(header::ORIGIN, "https://hostile.example")
@@ -452,7 +477,7 @@ async fn browser_origin_approval_denied() {
 #[tokio::test]
 async fn events_cursor_replay() {
     let (_data, store, _repository, run_id) = running_fixture().await;
-    let app = api_router(store);
+    let app = api_router(TOKEN.into(), store);
     let first = app
         .clone()
         .oneshot(
@@ -490,7 +515,7 @@ async fn events_cursor_replay() {
 }
 
 #[tokio::test]
-async fn dashboard_inventory_without_auth_is_bounded_and_durable() {
+async fn dashboard_inventory_is_authenticated_bounded_and_durable() {
     let (_data, store, _repo) = fixture().await;
     for n in 0..3 {
         let p = Project::new(
@@ -505,13 +530,18 @@ async fn dashboard_inventory_without_auth_is_bounded_and_durable() {
             .await
             .unwrap();
     }
-    let app = api_router(store);
+    let app = api_router(TOKEN.into(), store);
     let response = app
         .clone()
-        .oneshot(Request::get("/v1/dashboard").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::get("/v1/dashboard")
+                .header(header::HOST, "localhost:8080")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     let response = app
         .clone()
         .oneshot(
@@ -567,7 +597,7 @@ async fn trusted_project_import_preserves_dirty_files_but_execution_gate_stays_c
     let before = git(repo.path(), &["status", "--porcelain=v1"])
         .await
         .unwrap();
-    let response = api_router(store)
+    let response = api_router(TOKEN.into(), store)
         .oneshot(
             local(Request::post("/v1/projects"))
                 .header(header::CONTENT_TYPE, "application/json")
@@ -606,7 +636,7 @@ async fn project_trust_is_explicit_and_removal_never_deletes_files_or_runs() {
     )
     .unwrap();
     store.create_project(&project).await.unwrap();
-    let app = api_router(store.clone());
+    let app = api_router(TOKEN.into(), store.clone());
     let path = "/v1/projects/trust-project/trust";
     let response = app
         .clone()
@@ -689,9 +719,14 @@ async fn goal_without_connected_provider_fails_with_visible_reason() {
     )
     .unwrap();
     store.create_project(&p).await.unwrap();
-    let app = harness_daemon::api_router_with_settings(store, None, data.path().to_path_buf());
+    let app = harness_daemon::api_router_with_settings(
+        TOKEN.into(),
+        store,
+        None,
+        data.path().to_path_buf(),
+    );
     let post = |body: Value| {
-        Request::post("/v1/goals")
+        local(Request::post("/v1/goals"))
             .header(header::CONTENT_TYPE, "application/json")
             .body(Body::from(body.to_string()))
             .unwrap()
@@ -716,7 +751,7 @@ async fn goal_without_connected_provider_fails_with_visible_reason() {
     for _ in 0..100 {
         let (_, value) = send(
             &app,
-            Request::get(format!("/v1/goals/{run}"))
+            local(Request::get(format!("/v1/goals/{run}")))
                 .body(Body::empty())
                 .unwrap(),
         )

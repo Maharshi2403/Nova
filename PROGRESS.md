@@ -527,7 +527,7 @@ Backup: `/private/tmp/nova-h073-backup/tracked.patch` and its `untracked/` direc
 
 The working tree was divided into H-073a (failure diagnostics), H-073b
 (acceptance-check artifact cleanup), and H-073c (main-agent goal planning and
-remaining WIP). The final commit also retains pre-existing provider key editing,
+remaining WIP). The landing also retains pre-existing provider key editing,
 Anthropic header and coder turn-limit changes; these were present before H-073.
 
 Verified on macOS (Apple Silicon), 2026-11-06:
@@ -580,3 +580,32 @@ Verified on macOS (Apple Silicon), 2026-11-06:
 
 Python socket tests and the demos required loopback access outside the sandbox.
 No paid provider calls, push, or tags were used.
+
+## H-075 — Restore authenticated local control plane
+
+Every `/v1` route now requires a constant-time compared bearer token and a
+loopback Host header with the daemon's bound port. The daemon creates 32 random
+bytes from the OS RNG, stores them in `daemon.token`, and restricts the data
+directory, database, and token permissions on Unix. The CLI reads the token
+from the data directory and rejects an impersonating listener during startup.
+The desktop continues to use the CLI stdin bridge. The API, trust-boundary,
+and ADR documents describe the restored control plane.
+
+Verified on macOS (Apple Silicon), 2026-11-06:
+
+- `cargo test --locked --offline -p harness-daemon` — 18 API and 9 server tests passed before the final bound-port check; `cargo test --locked --offline -p harness-daemon --test server` — 10 server tests passed afterward.
+- `cargo test --locked --offline -p harness-cli` — CLI tests passed, including `startup_rejects_impersonating_listener`.
+- `cargo fmt --all --check` — PASS.
+- `cargo clippy --locked --offline --workspace --all-targets -- -D warnings` — PASS.
+- `cargo test --locked --offline --workspace` — PASS.
+- `cargo build --locked --offline --workspace` — PASS.
+- `uv run --offline --locked pytest` from `intelligence/` — 114 passed.
+- `UV_CACHE_DIR=/private/tmp/nova-uv-cache uv run --locked --offline ruff check .` from `intelligence/` — PASS.
+- `UV_CACHE_DIR=/private/tmp/nova-uv-cache uv run --locked --offline ruff format --check .` from `intelligence/` — PASS.
+- `UV_CACHE_DIR=/private/tmp/nova-uv-cache uv run --locked --offline mypy src` from `intelligence/` — PASS.
+- `UV_CACHE_DIR=/private/tmp/nova-uv-cache uv run --locked --offline --project intelligence ruff check scripts/smoke_bundle.py` — PASS.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 3` — PASS against the rebuilt authenticated daemon.
+- `intelligence/.venv/bin/python scripts/build_desktop.py` — PASS.
+
+No paid provider calls, push, or tags were used. H-076 remains necessary:
+the authenticated execute request still accepts a caller-selected interpreter.

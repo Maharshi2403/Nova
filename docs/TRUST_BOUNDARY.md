@@ -30,9 +30,11 @@ bypass this gate. Approved commands still require exact argv authorization.
 - Coder workers have scrubbed environments and isolated imports. Only a separate
   provider adapter gets only the selected saved credential for one authorized bounded request.
   Rust records provider usage; uncertain calls retain reserved spend.
-- The local API has no authentication for now. It binds only loopback and rejects
-  browser-origin/cross-site requests. Other local processes can control it; it is
-  not a multi-user boundary. Provider API credentials still use the configured vault.
+- The local API binds loopback, requires a private bearer token for every `/v1`
+  route, and rejects foreign Host and browser-origin requests. The token is kept
+  in a mode 0600 file under a mode 0700 data directory on Unix. This protects
+  against other local users and browser requests; a process with the same user
+  privileges may still access the token. Provider credentials use the vault.
 - Logs/artifacts are bounded and redact known credentials/token patterns. This is
   not a guarantee of detecting every unknown secret. Do not place secrets in prompts,
   test argv or source files supplied to a model.

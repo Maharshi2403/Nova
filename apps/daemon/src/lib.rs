@@ -1,4 +1,4 @@
-//! Loopback-only local control server.
+//! Authenticated loopback control server.
 
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 const PORT_FILE: &str = "daemon.json";
+const TOKEN_FILE: &str = "daemon.token";
 
 #[derive(Debug, thiserror::Error)]
 pub enum DaemonError {
@@ -29,6 +30,8 @@ pub enum DaemonError {
     NonLoopback(SocketAddr),
     #[error("could not access daemon data directory: {0}")]
     DataDirectory(#[source] std::io::Error),
+    #[error("could not access daemon token: {0}")]
+    TokenFile(#[source] std::io::Error),
     #[error("could not write daemon discovery metadata: {0}")]
     DiscoveryFile(#[source] std::io::Error),
     #[error("could not bind daemon listener: {0}")]
@@ -40,6 +43,8 @@ pub enum DaemonError {
 #[derive(Debug)]
 pub struct Daemon {
     pub address: SocketAddr,
+    token: String,
+    pub token_path: PathBuf,
     pub discovery_path: PathBuf,
     shutdown: tokio::sync::watch::Sender<bool>,
     server: tokio::task::JoinHandle<()>,
@@ -56,6 +61,12 @@ pub async fn start(data_dir: impl AsRef<Path>, bind: SocketAddr) -> Result<Daemo
     }
     let data_dir = data_dir.as_ref();
     std::fs::create_dir_all(data_dir).map_err(DaemonError::DataDirectory)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(data_dir, std::fs::Permissions::from_mode(0o700))
+            .map_err(DaemonError::DataDirectory)?;
+    }
     let daemon_lock = std::fs::OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -66,6 +77,9 @@ pub async fn start(data_dir: impl AsRef<Path>, bind: SocketAddr) -> Result<Daemo
     daemon_lock
         .try_lock()
         .map_err(|e| DaemonError::DataDirectory(std::io::Error::other(e)))?;
+    let token_path = data_dir.join(TOKEN_FILE);
+    let token = load_or_create_token(&token_path)?;
+    harness_core::redaction::register_secret(&token);
     // Reuse a durable port on restart: binding it establishes single-daemon ownership
     // before touching leases. A second daemon with the same data directory fails closed.
     let bind = if bind.port() == 0 {
@@ -82,9 +96,20 @@ pub async fn start(data_dir: impl AsRef<Path>, bind: SocketAddr) -> Result<Daemo
     let listener = tokio::net::TcpListener::bind(bind)
         .await
         .map_err(DaemonError::Bind)?;
-    let store = Store::open(data_dir.join("harness.db"))
-        .await
-        .map_err(DaemonError::Store)?;
+    let db_path = data_dir.join("harness.db");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .mode(0o600)
+            .open(&db_path)
+            .map_err(DaemonError::DataDirectory)?;
+        std::fs::set_permissions(&db_path, std::fs::Permissions::from_mode(0o600))
+            .map_err(DaemonError::DataDirectory)?;
+    }
+    let store = Store::open(db_path).await.map_err(DaemonError::Store)?;
     harness_runtime::recovery::reconcile_interrupted(&store, unix_seconds())
         .await
         .map_err(DaemonError::Store)?;
@@ -97,6 +122,8 @@ pub async fn start(data_dir: impl AsRef<Path>, bind: SocketAddr) -> Result<Daemo
     std::fs::write(&discovery_path, discovery).map_err(DaemonError::DiscoveryFile)?;
     let (shutdown, mut stopping) = tokio::sync::watch::channel(false);
     let app = api_router_with_lifecycle(
+        token.clone(),
+        address.port(),
         store,
         Some(harness_runtime::engine::Engine::new(
             data_dir.join("execution"),
@@ -116,6 +143,8 @@ pub async fn start(data_dir: impl AsRef<Path>, bind: SocketAddr) -> Result<Daemo
     });
     Ok(Daemon {
         address,
+        token,
+        token_path,
         discovery_path,
         shutdown,
         server,
@@ -140,6 +169,9 @@ impl Daemon {
             _ = &mut server => {},
         }
     }
+    pub fn authorization_header(&self) -> String {
+        format!("Bearer {}", self.token)
+    }
 }
 
 #[derive(Clone)]
@@ -152,35 +184,48 @@ struct ApiState {
     settings_root: Option<PathBuf>,
 }
 
-pub fn router() -> Router {
+#[derive(Clone)]
+struct AuthGuard {
+    token: String,
+    port: u16,
+}
+
+pub fn router(token: String) -> Router {
     Router::new().route("/healthz", get(healthz)).nest(
         "/v1",
         Router::new()
             .route("/control", get(control))
-            .layer(axum::middleware::from_fn(reject_browser_requests)),
+            .layer(axum::middleware::from_fn_with_state(
+                AuthGuard { token, port: 0 },
+                require_local_bearer,
+            )),
     )
 }
 
-pub fn api_router(store: Store) -> Router {
-    api_router_with_runtime(store, None)
+pub fn api_router(token: String, store: Store) -> Router {
+    api_router_with_runtime(token, store, None)
 }
 
 pub fn api_router_with_runtime(
+    token: String,
     store: Store,
     engine: Option<harness_runtime::engine::Engine>,
 ) -> Router {
-    api_router_with_lifecycle(store, engine, None, None)
+    api_router_with_lifecycle(token, 0, store, engine, None, None)
 }
 
 /// Router whose main planning agent reads provider settings from `settings_root`.
 pub fn api_router_with_settings(
+    token: String,
     store: Store,
     engine: Option<harness_runtime::engine::Engine>,
     settings_root: PathBuf,
 ) -> Router {
-    api_router_with_lifecycle(store, engine, None, Some(settings_root))
+    api_router_with_lifecycle(token, 0, store, engine, None, Some(settings_root))
 }
 fn api_router_with_lifecycle(
+    token: String,
+    port: u16,
     store: Store,
     engine: Option<harness_runtime::engine::Engine>,
     shutdown: Option<tokio::sync::watch::Sender<bool>>,
@@ -227,7 +272,10 @@ fn api_router_with_lifecycle(
                 shutdown,
                 settings_root,
             })
-            .layer(axum::middleware::from_fn(reject_browser_requests)),
+            .layer(axum::middleware::from_fn_with_state(
+                AuthGuard { token, port },
+                require_local_bearer,
+            )),
     )
 }
 
@@ -398,10 +446,14 @@ async fn execution_source(
 }
 
 async fn control() -> Json<serde_json::Value> {
-    Json(serde_json::json!({"status": "ok"}))
+    Json(serde_json::json!({"status": "authenticated"}))
 }
 
-async fn reject_browser_requests(request: Request<Body>, next: axum::middleware::Next) -> Response {
+async fn require_local_bearer(
+    State(guard): State<AuthGuard>,
+    request: Request<Body>,
+    next: axum::middleware::Next,
+) -> Response {
     if request.headers().contains_key(header::ORIGIN)
         || request
             .headers()
@@ -409,6 +461,36 @@ async fn reject_browser_requests(request: Request<Body>, next: axum::middleware:
             .is_some_and(|v| v != "none" && v != "same-origin")
     {
         return StatusCode::FORBIDDEN.into_response();
+    }
+    let allowed_host = request
+        .headers()
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|host| {
+            ["127.0.0.1", "localhost", "[::1]"]
+                .iter()
+                .find_map(|name| host.strip_prefix(name)?.strip_prefix(':'))
+        })
+        .and_then(|port| port.parse::<u16>().ok())
+        .is_some_and(|port| port > 0 && (guard.port == 0 || port == guard.port));
+    if !allowed_host {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let expected = format!("Bearer {}", guard.token);
+    let authenticated = request
+        .headers()
+        .get(header::AUTHORIZATION)
+        .is_some_and(|value| {
+            value.as_bytes().len() == expected.len()
+                && value
+                    .as_bytes()
+                    .iter()
+                    .zip(expected.as_bytes())
+                    .fold(0u8, |diff, (actual, expected)| diff | (actual ^ expected))
+                    == 0
+        });
+    if !authenticated {
+        return StatusCode::UNAUTHORIZED.into_response();
     }
     next.run(request).await
 }
@@ -1082,6 +1164,64 @@ fn unix_seconds() -> i64 {
         .map_or(0, |duration| {
             i64::try_from(duration.as_secs()).unwrap_or(i64::MAX)
         })
+}
+
+fn load_or_create_token(path: &Path) -> Result<String, DaemonError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            if !metadata.file_type().is_file() {
+                return Err(DaemonError::TokenFile(std::io::Error::other(
+                    "token path must be a regular file",
+                )));
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+                    .map_err(DaemonError::TokenFile)?;
+            }
+            let token = std::fs::read_to_string(path).map_err(DaemonError::TokenFile)?;
+            let token = token.trim();
+            if token.len() != 64 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                return Err(DaemonError::TokenFile(std::io::Error::other(
+                    "daemon token is invalid",
+                )));
+            }
+            Ok(token.to_owned())
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let mut bytes = [0u8; 32];
+            getrandom::fill(&mut bytes).map_err(|error| {
+                DaemonError::TokenFile(std::io::Error::other(error.to_string()))
+            })?;
+            let token = bytes
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>();
+            write_token(path, &token)?;
+            Ok(token)
+        }
+        Err(error) => Err(DaemonError::TokenFile(error)),
+    }
+}
+
+#[cfg(unix)]
+fn write_token(path: &Path, token: &str) -> Result<(), DaemonError> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+        .map_err(DaemonError::TokenFile)?;
+    file.write_all(token.as_bytes())
+        .map_err(DaemonError::TokenFile)
+}
+
+#[cfg(windows)]
+fn write_token(path: &Path, token: &str) -> Result<(), DaemonError> {
+    std::fs::write(path, token).map_err(DaemonError::TokenFile)
 }
 async fn update_task_priority(
     State(state): State<ApiState>,

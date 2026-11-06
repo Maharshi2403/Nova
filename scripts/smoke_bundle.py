@@ -19,7 +19,9 @@ def main() -> None:
     args = parser.parse_args()
     archive = args.archive
     if archive is None:
-        candidates = list(args.archive_dir.glob("nova-*.zip")) if args.archive_dir else []
+        candidates = (
+            list(args.archive_dir.glob("nova-*.zip")) if args.archive_dir else []
+        )
         assert len(candidates) == 1, "specify one native archive"
         archive = candidates[0]
     expected = archive.with_suffix(".zip.sha256").read_text().split()[0]
@@ -35,7 +37,10 @@ def main() -> None:
                 path = PurePosixPath(entry.filename)
                 assert not path.is_absolute() and ".." not in path.parts
                 assert "\\" not in entry.filename and ":" not in entry.filename
-                assert not any(p in {".git", ".env", "api-token", "harness.db"} for p in path.parts)
+                assert not any(
+                    p in {".git", ".env", "api-token", "daemon.token", "harness.db"}
+                    for p in path.parts
+                )
                 assert (entry.external_attr >> 16) & 0o170000 != 0o120000
             sums = bundle.read("SHA256SUMS").decode().splitlines()
             expected_files = {"SHA256SUMS"}
@@ -60,7 +65,8 @@ def main() -> None:
             subprocess.run([str(nova), "--daemon-dir", str(state), "stop"], check=True)
         venv = root / "runtime"
         subprocess.run(
-            ["uv", "venv", "--offline", "--python", sys.executable, str(venv)], check=True
+            ["uv", "venv", "--offline", "--python", sys.executable, str(venv)],
+            check=True,
         )
         python = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
         subprocess.run(

@@ -144,6 +144,10 @@ enum CliError {
     Discovery(#[source] std::io::Error),
     #[error("daemon discovery metadata is invalid: {0}")]
     DiscoveryJson(#[source] serde_json::Error),
+    #[error("daemon token is unavailable: {0}")]
+    Token(#[source] std::io::Error),
+    #[error("daemon token is invalid")]
+    InvalidToken,
     #[error("could not contact loopback daemon: {0}")]
     Connect(#[source] std::io::Error),
     #[error("request rejected: {0}")]
@@ -158,6 +162,7 @@ enum CliError {
 
 struct Client {
     address: SocketAddr,
+    token: String,
 }
 
 fn main() {
@@ -378,8 +383,15 @@ impl Client {
             .and_then(serde_json::Value::as_u64)
             .and_then(|port| u16::try_from(port).ok())
             .ok_or_else(|| CliError::Protocol("missing daemon port".into()))?;
+        let token =
+            std::fs::read_to_string(data_dir.join("daemon.token")).map_err(CliError::Token)?;
+        let token = token.trim().to_owned();
+        if token.len() != 64 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(CliError::InvalidToken);
+        }
         Ok(Self {
             address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port),
+            token,
         })
     }
 
@@ -409,7 +421,9 @@ impl Client {
             .set_write_timeout(Some(timeout))
             .map_err(CliError::Connect)?;
         let request = format!(
-            "{method} {path} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            "{method} {path} HTTP/1.1\r\nHost: localhost:{}\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            self.address.port(),
+            self.token,
             body.len()
         );
         stream

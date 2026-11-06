@@ -1,10 +1,12 @@
 # Control API v1 and native desktop client
 
-The daemon binds loopback. `daemon.json` holds the port. Local `/v1` routes do
-not require authentication or an Authorization header. No API token is created
-or read. Origin-bearing/cross-site browser requests are denied; there is no
-permissive CORS. The native desktop uses the CLI stdin transport. Provider API
-credentials remain separate and are required for live model calls.
+The daemon binds loopback. `daemon.json` holds the port. Every `/v1` request
+requires `Authorization: Bearer <token>` with the 256-bit token stored in
+`daemon.token` (mode 0600). The data directory is mode 0700 on Unix. `/healthz`
+is open and minimal. Requests with a foreign Host header or a browser Origin
+are denied; there is no permissive CORS. The native desktop uses the CLI stdin
+transport and never receives the token in argv or a URL. Provider credentials
+remain separate and are required for live model calls.
 
 JSON rejects unknown fields. Typical statuses: 422 invalid values/plan; 409 stale
 revision/conflict; 404 missing resource; 401 auth; 403 hostile origin; 429 event
@@ -47,7 +49,7 @@ Native dashboard additions: GET `/v1/dashboard?offset=0&limit=100` returns
 newest-first projects/runs with total counts (limit 1..200); projects include their
 persisted trusted-local decision. GET `/v1/tasks/{run}/{task}/evidence` returns
 recorded verifier command/exit/duration and task/integration commit identities.
-Both work without authentication and reject browser-origin requests.
+Both require bearer authentication and reject browser-origin requests.
 
 Dashboard runs include their latest immutable `plan_version` when available.
 Trusted project import checks the Git root/base but permits uncommitted changes;
@@ -56,7 +58,7 @@ execution still enforces a clean checkout.
 Project controls: POST `/v1/projects/{id}/trust` with `{trusted_local:true/false}`
 records an explicit trust decision; enabling checks the Git root and base without
 requiring a clean checkout. DELETE `/v1/projects/{id}` removes only an empty
-registration (409 when it has runs), never repository files. Both work without authentication and retain origin rejection.
+registration (409 when it has runs), never repository files. Both require bearer authentication and retain origin rejection.
 
 Execute accepts optional `committed_snapshot` (default false). True uses the pinned
 committed source without requiring local edits to be stashed; no dirty/untracked
