@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from typing import Any, BinaryIO, Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from harness_ai.framing import read_frame, write_frame
 from harness_ai.protocol import Envelope, MessageKind
@@ -29,6 +29,7 @@ class StartTask(_Strict):
     context_manifest_hash: str
     allowed_tools: list[str]
     max_tool_calls: int
+    max_model_turns: int | None = Field(default=None, ge=1)
     max_output_tokens: int
     timeout_seconds: int
     cost_cap_usd: float

@@ -35,6 +35,7 @@ fn start(provider: &str) -> StartTask {
         context_manifest_hash: "sha256:abc".into(),
         allowed_tools: vec!["repo.read".into()],
         max_tool_calls: 5,
+        max_model_turns: None,
         max_output_tokens: 1000,
         timeout_seconds: 60,
         cost_cap_usd: 0.0,

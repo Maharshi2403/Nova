@@ -9,7 +9,11 @@ from harness_ai.providers.mock import MockModelProvider
 
 
 def exercise(
-    *, denied: bool = False, reads: int = 1, max_tool_calls: int = 10
+    *,
+    denied: bool = False,
+    reads: int = 1,
+    max_tool_calls: int = 10,
+    max_model_turns: int | None = None,
 ) -> tuple[list[str], list[tuple[str, dict[str, Any]]], MockModelProvider]:
     task = json.loads(
         (Path(__file__).resolve().parents[2] / "tests/fixtures/plans/valid_plan.json").read_text()
@@ -50,6 +54,7 @@ def exercise(
         context_manifest_hash="h",
         allowed_tools=["task.describe", "model.authorize", "repo.read"],
         max_tool_calls=max_tool_calls,
+        max_model_turns=max_model_turns,
         max_output_tokens=2000,
         timeout_seconds=10,
         cost_cap_usd=1,
@@ -79,3 +84,11 @@ def test_live_coder_can_use_task_turn_budget_beyond_sixteen() -> None:
     assert len(provider.calls) == 18
     assert calls.count("repo.read") == 17
     assert events[-1][0] == "completed"
+
+
+def test_coder_ends_cleanly_on_turn_budget() -> None:
+    calls, events, provider = exercise(reads=2, max_tool_calls=10, max_model_turns=1)
+    assert len(provider.calls) == 1
+    assert calls.count("repo.read") == 1
+    assert events[-1] == ("failed", {"reason": "turn budget exhausted", "retryable": True})
+    assert "final model turn" in provider.calls[0]["messages"][1]["content"].lower()

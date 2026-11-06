@@ -668,3 +668,30 @@ Verified on macOS (Apple Silicon), 2026-11-06:
 - `intelligence/.venv/bin/python scripts/build_desktop.py` — PASS.
 
 No paid provider calls, push, or tags were used.
+
+## H-078 — Separate model turns, tool calls, and heartbeats
+
+The assignment protocol carries an optional `max_model_turns` that defaults to
+`max_tool_calls` when absent. Model authorization and completion requests no
+longer spend repository tool calls; model completions have their own limit.
+Heartbeat and progress frames are excluded from the message count and limited
+to one per 500 ms. On its final turn, the coder asks the model to finish and
+emits a retryable `turn budget exhausted` failure if it still requests a tool.
+
+Verified on macOS (Apple Silicon), 2026-11-06:
+
+- `cargo test --locked --offline -p harness-runtime --test supervisor` — 17 passed, including heartbeat flood, model turn, and tool budget regressions.
+- `uv run --offline --locked pytest -q tests/test_coder.py` — 4 passed, including clean turn exhaustion.
+- `cargo fmt --all --check` — PASS.
+- `cargo clippy --locked --offline --workspace --all-targets -- -D warnings` — PASS.
+- `cargo test --locked --offline --workspace` — PASS.
+- `cargo build --locked --offline --workspace` — PASS.
+- `uv run --offline --locked pytest` from `intelligence/` — 115 passed.
+- Python ruff lint/format and mypy in `intelligence/` — PASS.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 3` — PASS.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 100` — PASS.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 1 --fault` — PASS.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 1 --cancel` — PASS.
+- `intelligence/.venv/bin/python scripts/build_desktop.py` — PASS.
+
+No paid provider calls, push, or tags were used.

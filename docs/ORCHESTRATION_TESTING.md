@@ -29,6 +29,13 @@ Push, publish, network, deploy and destructive commands are rejected before a
 plan is proposed. Package scripts and make targets are marked for operator
 attention in the plan response and desktop review.
 
+Worker supervision budgets model completions separately from repository tool
+calls. `StartTask.max_model_turns` is optional on the wire and defaults to
+`max_tool_calls` for older workers. Heartbeat and progress frames do not spend
+the message budget, but a stream faster than one frame per 500 ms is rejected.
+The coder prompts for a terminal decision on its final model turn and reports
+a retryable `turn budget exhausted` failure if it still needs another turn.
+
 No paid provider generation was performed. Routing tests validate selection and
 policy, not model quality or successful remote completion. The 100-task demo uses
 mock coding actions and a prebuilt plan; it does not demonstrate a reasoning main

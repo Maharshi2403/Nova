@@ -1,10 +1,10 @@
 //! Supervises one assignment on a handshaken worker: heartbeat/idle timeout, an overall
-//! deadline, cooperative cancellation and a hard cap on worker messages.
+//! deadline, cooperative cancellation, and separate limits on worker messages and model turns.
 //!
 //! The worker is read one frame at a time, so a flooding worker is throttled by the OS pipe
-//! instead of growing a queue; the message cap then ends the attempt.
+//! instead of growing a queue; the message cap and progress cadence end floods.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use harness_core::messages::{
     AssignmentSession, Completed, Failed, SessionError, StartTask, ToolRequest, ToolResponse,
@@ -24,7 +24,7 @@ pub struct Limits {
     pub idle_timeout: Duration,
     /// Wall-clock budget for the whole assignment.
     pub deadline: Duration,
-    /// Frames accepted from the worker before the attempt is aborted.
+    /// Non-progress frames accepted from the worker before the attempt is aborted.
     pub max_messages: u32,
 }
 
@@ -123,12 +123,16 @@ async fn drive<B: ToolBroker>(
 ) -> Result<Outcome, SuperviseError> {
     if start.max_output_tokens == 0
         || start.max_tool_calls == 0
+        || start.max_model_turns == Some(0)
         || !start.cost_cap_usd.is_finite()
         || start.cost_cap_usd < 0.0
     {
         return Err(SuperviseError::BudgetExceeded("invalid assignment limits"));
     }
     let mut tool_calls = 0u32;
+    let mut model_turns = 0u32;
+    let max_model_turns = start.max_model_turns.unwrap_or(start.max_tool_calls);
+    let mut last_progress: Option<Instant> = None;
     let mut output_tokens = 0u64;
     let mut cost = 0.0f64;
     let assignment = session.start_task(start, now());
@@ -160,12 +164,27 @@ async fn drive<B: ToolBroker>(
             Err(WorkerError::Frame(e)) => return Err(SuperviseError::Protocol(e.to_string())),
             Err(e) => return Err(SuperviseError::Worker(e)),
         };
-        received += 1;
-        if received > limits.max_messages {
-            return Err(SuperviseError::MessageFlood(limits.max_messages));
+        let message = session.accept(&envelope)?;
+        if !matches!(
+            message,
+            WorkerMessage::Progress(_) | WorkerMessage::Heartbeat
+        ) {
+            received += 1;
+            if received > limits.max_messages {
+                return Err(SuperviseError::MessageFlood(limits.max_messages));
+            }
         }
-        match session.accept(&envelope)? {
-            WorkerMessage::Progress(_) | WorkerMessage::Heartbeat => {}
+        match message {
+            WorkerMessage::Progress(_) | WorkerMessage::Heartbeat => {
+                let current = Instant::now();
+                if last_progress
+                    .is_some_and(|last| current.duration_since(last) < Duration::from_millis(500))
+                {
+                    return Err(SuperviseError::MessageFlood(limits.max_messages));
+                }
+                last_progress = Some(current);
+                continue;
+            }
             WorkerMessage::Usage(usage) => {
                 broker
                     .record_usage(envelope.message_id, &usage)
@@ -186,10 +205,25 @@ async fn drive<B: ToolBroker>(
                 request_id,
                 request,
             } => {
-                if tool_calls >= start.max_tool_calls {
-                    return Err(SuperviseError::BudgetExceeded("tool calls"));
+                match request.tool.as_str() {
+                    "model.authorize" => {
+                        if model_turns >= max_model_turns {
+                            return Err(SuperviseError::BudgetExceeded("model turns"));
+                        }
+                    }
+                    "model.complete" => {
+                        if model_turns >= max_model_turns {
+                            return Err(SuperviseError::BudgetExceeded("model turns"));
+                        }
+                        model_turns += 1;
+                    }
+                    _ => {
+                        if tool_calls >= start.max_tool_calls {
+                            return Err(SuperviseError::BudgetExceeded("tool calls"));
+                        }
+                        tool_calls += 1;
+                    }
                 }
-                tool_calls += 1;
                 let response = tokio::select! {
                     response = broker.handle(&request) => response,
                     _ = wait_for_cancel(cancel) => return cancelled(worker).await,

@@ -540,6 +540,7 @@ impl Execution {
                 context_manifest_hash: "offline-task-description".into(),
                 allowed_tools: tools,
                 max_tool_calls: task.spec.limits.max_tool_calls,
+                max_model_turns: Some(task.spec.limits.max_tool_calls),
                 max_output_tokens: task.spec.limits.max_output_tokens,
                 timeout_seconds: task.spec.limits.timeout_seconds,
                 cost_cap_usd: task.spec.limits.cost_cap_usd,
@@ -553,7 +554,15 @@ impl Execution {
             let limits = supervisor::Limits {
                 idle_timeout: Duration::from_secs(10),
                 deadline: Duration::from_secs(u64::from(start.timeout_seconds)),
-                max_messages: start.max_tool_calls.saturating_mul(3).saturating_add(20),
+                max_messages: start
+                    .max_tool_calls
+                    .saturating_add(
+                        start
+                            .max_model_turns
+                            .unwrap_or(start.max_tool_calls)
+                            .saturating_mul(3),
+                    )
+                    .saturating_add(20),
             };
             match supervisor::supervise(
                 &mut worker,

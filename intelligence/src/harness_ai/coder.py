@@ -66,9 +66,15 @@ async def code_task(assignment: StartTask, provider: ModelProvider, tool: Tool, 
         history = ""
         changed: list[str] = []
         schema = Action.model_json_schema()
+        max_model_turns = assignment.max_model_turns or assignment.max_tool_calls
         heartbeat = asyncio.create_task(pulse())
         async with asyncio.timeout(assignment.timeout_seconds):
-            for _turn in range(assignment.max_tool_calls):
+            for turn in range(max_model_turns):
+                if turn == max_model_turns - 1:
+                    required["turn_budget"] = (
+                        "This is the final model turn. Return completed or failed; "
+                        "do not request a tool."
+                    )
                 prompt = build_prompt(
                     "coder",
                     required,
@@ -159,7 +165,7 @@ async def code_task(assignment: StartTask, provider: ModelProvider, tool: Tool, 
                 if usage.output_tokens is None:
                     raise PermanentProviderError("unknown output usage prevents another model call")
                 remaining -= usage.output_tokens
-        raise PermanentProviderError("coder turn limit exhausted")
+        emit("failed", Failed(reason="turn budget exhausted", retryable=True).model_dump())
     except (ProviderError, ValueError, KeyError, TypeError, TimeoutError) as exc:
         # Provider errors carry fixed messages (never bodies, prompts or credentials).
         # Other exceptions may embed model output or task data, so report only their class.

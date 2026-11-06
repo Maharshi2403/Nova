@@ -93,6 +93,7 @@ fn start() -> StartTask {
         context_manifest_hash: "sha256:x".into(),
         allowed_tools: vec![],
         max_tool_calls: 3,
+        max_model_turns: None,
         max_output_tokens: 100,
         timeout_seconds: 30,
         cost_cap_usd: 0.0,
@@ -143,11 +144,79 @@ async fn hung_worker_times_out() {
 #[tokio::test]
 async fn heartbeats_keep_a_slow_worker_alive() {
     let (_tx, rx) = watch::channel(false);
-    let body = "for _ in range(4):\n    time.sleep(0.4)\n    write_frame(out, frame('heartbeat', {}))\n\
+    let body = "for _ in range(4):\n    time.sleep(0.6)\n    write_frame(out, frame('heartbeat', {}))\n\
                 write_frame(out, frame('completed', {'summary': 'ok', 'changed_paths': [], 'claimed_tests': []}))";
     let (r, w) = run(body, limits(), rx).await;
     assert!(matches!(r, Ok(Outcome::Completed(_))), "{r:?}");
     w.shutdown(T).await;
+}
+
+#[tokio::test]
+async fn heartbeats_do_not_exhaust_message_budget() {
+    let (_tx, rx) = watch::channel(false);
+    let mut l = limits();
+    l.max_messages = 1;
+    let body = "for _ in range(8):\n    time.sleep(0.51)\n    write_frame(out, frame('heartbeat', {}))\nwrite_frame(out, frame('completed', {'summary': 'ok', 'changed_paths': [], 'claimed_tests': []}))";
+    let (r, w) = run(body, l, rx).await;
+    assert!(matches!(r, Ok(Outcome::Completed(_))), "{r:?}");
+    w.shutdown(T).await;
+}
+
+#[tokio::test]
+async fn heartbeat_flood_rejected() {
+    let (_tx, rx) = watch::channel(false);
+    let body = "for _ in range(1000):\n    write_frame(out, frame('heartbeat', {}))";
+    let (r, w) = run(body, limits(), rx).await;
+    assert!(matches!(r, Err(SuperviseError::MessageFlood(50))), "{r:?}");
+    assert!(w.shutdown(T).await.killed_by_supervisor);
+}
+
+#[tokio::test]
+async fn model_calls_do_not_consume_tool_budget() {
+    let (_tx, rx) = watch::channel(false);
+    let body = "for name in ('model.authorize', 'model.complete', 'repo.read'):\n    write_frame(out, frame('tool_request', {'tool': name, 'arguments': {}}))\n    read_frame(sys.stdin.buffer)\nwrite_frame(out, frame('completed', {'summary': 'ok', 'changed_paths': [], 'claimed_tests': []}))";
+    let mut w = Worker::spawn(&scripted(body)).unwrap();
+    w.handshake(T).await.unwrap();
+    let mut session = AssignmentSession::new("run-1", "task-1", 1, 1);
+    let mut assignment = start();
+    assignment.max_tool_calls = 1;
+    assignment.max_model_turns = Some(1);
+    let r = supervise(
+        &mut w,
+        &mut session,
+        &assignment,
+        limits(),
+        &mut EchoBroker,
+        rx,
+    )
+    .await;
+    assert!(matches!(r, Ok(Outcome::Completed(_))), "{r:?}");
+    w.shutdown(T).await;
+}
+
+#[tokio::test]
+async fn model_turn_limit_is_separate() {
+    let (_tx, rx) = watch::channel(false);
+    let body = "for _ in range(2):\n    write_frame(out, frame('tool_request', {'tool': 'model.complete', 'arguments': {}}))\n    read_frame(sys.stdin.buffer)";
+    let mut w = Worker::spawn(&scripted(body)).unwrap();
+    w.handshake(T).await.unwrap();
+    let mut session = AssignmentSession::new("run-1", "task-1", 1, 1);
+    let mut assignment = start();
+    assignment.max_model_turns = Some(1);
+    let r = supervise(
+        &mut w,
+        &mut session,
+        &assignment,
+        limits(),
+        &mut EchoBroker,
+        rx,
+    )
+    .await;
+    assert!(
+        matches!(r, Err(SuperviseError::BudgetExceeded("model turns"))),
+        "{r:?}"
+    );
+    assert!(w.shutdown(T).await.killed_by_supervisor);
 }
 
 #[tokio::test]
@@ -176,9 +245,9 @@ async fn message_flood_bounded() {
 async fn deadline_is_enforced_even_with_heartbeats() {
     let (_tx, rx) = watch::channel(false);
     let mut l = limits();
-    l.deadline = Duration::from_millis(1200);
+    l.deadline = Duration::from_millis(1400);
     l.max_messages = 10_000;
-    let body = "while True:\n    time.sleep(0.2)\n    write_frame(out, frame('heartbeat', {}))";
+    let body = "while True:\n    time.sleep(0.6)\n    write_frame(out, frame('heartbeat', {}))";
     let (r, w) = run(body, l, rx).await;
     assert!(
         matches!(r, Err(SuperviseError::DeadlineExceeded(_))),

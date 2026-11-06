@@ -28,6 +28,8 @@ pub struct StartTask {
     pub context_manifest_hash: String,
     pub allowed_tools: Vec<String>,
     pub max_tool_calls: u32,
+    #[serde(default)]
+    pub max_model_turns: Option<u32>,
     pub max_output_tokens: u32,
     pub timeout_seconds: u32,
     pub cost_cap_usd: f64,
@@ -243,10 +245,14 @@ impl AssignmentSession {
                 if self.pending.is_some() {
                     return Err(SessionError::ToolRequestOutstanding);
                 }
-                if self.tool_calls >= self.max_tool_calls {
+                if !matches!(request.tool.as_str(), "model.authorize" | "model.complete")
+                    && self.tool_calls >= self.max_tool_calls
+                {
                     return Err(SessionError::ToolCallLimit(self.max_tool_calls));
                 }
-                self.tool_calls += 1;
+                if !matches!(request.tool.as_str(), "model.authorize" | "model.complete") {
+                    self.tool_calls += 1;
+                }
                 self.pending = Some(env.message_id);
                 WorkerMessage::ToolRequest {
                     request_id: env.message_id,
