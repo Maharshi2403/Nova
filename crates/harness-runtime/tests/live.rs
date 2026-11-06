@@ -70,7 +70,10 @@ async fn credential_scoped_adapter_fails_closed_without_key_over_real_ipc() {
     );
     let response = broker.complete(&ToolRequest {tool:"model.complete".into(),arguments:serde_json::json!({"messages":[],"schema":{"type":"object"},"model_id":"user-configured-model","max_output_tokens":1000,"timeout_seconds":1}).as_object().unwrap().clone()}).await;
     assert!(!response.0.ok);
-    assert_eq!(response.0.error.as_deref(), Some("permanent_provider"));
+    assert_eq!(
+        response.0.error.as_deref(),
+        Some("permanent_provider: live provider is disabled or missing credentials")
+    );
     assert!(response.1.unwrap().cost_usd.is_none());
 }
 

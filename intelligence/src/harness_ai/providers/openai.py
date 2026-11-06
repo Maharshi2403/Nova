@@ -24,6 +24,7 @@ from harness_ai.providers.base import (
     TransientProviderError,
     Usage,
 )
+from harness_ai.providers.http_json import http_error
 
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
@@ -128,9 +129,9 @@ class OpenAIProvider:
                 ) as response,
             ):
                 if response.status_code == 429 or response.status_code >= 500:
-                    raise TransientProviderError(f"provider HTTP {response.status_code}")
+                    raise TransientProviderError(await http_error(response))
                 if response.status_code != 200:
-                    raise PermanentProviderError(f"provider HTTP {response.status_code}")
+                    raise PermanentProviderError(await http_error(response))
                 data = bytearray()
                 async for chunk in response.aiter_bytes():
                     data.extend(chunk)
@@ -141,7 +142,11 @@ class OpenAIProvider:
         try:
             result = json.loads(data)
             if result.get("status") != "completed":
-                raise ValueError("incomplete response")
+                reason = (result.get("incomplete_details") or {}).get("reason")
+                raise PermanentProviderError(
+                    "provider response incomplete"
+                    + (f" {reason}" if isinstance(reason, str) and reason.isidentifier() else "")
+                )
             texts = [
                 part["text"]
                 for item in result["output"]

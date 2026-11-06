@@ -207,12 +207,12 @@ impl LiveBroker {
         };
         let response = match outcome {
             Ok(v) => v,
-            Err(_) => {
+            Err(reason) => {
                 return (
                     ToolResponse {
                         ok: false,
                         result: None,
-                        error: Some("transient_provider".into()),
+                        error: Some(format!("transient_provider: {reason}")),
                     },
                     Some(unknown),
                 );

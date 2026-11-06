@@ -49,6 +49,14 @@ async fn concurrency_cap_respected_and_blocked_never_dispatched() {
     );
     assert_eq!(pool.active(), 1);
     assert!(pool.join_next().await.unwrap().is_err());
+    assert_eq!(
+        store
+            .latest_task_failure(&run.id, &TaskId::new("task-model").unwrap())
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("injected failure")
+    );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(
         store.list_tasks(&run.id).await.unwrap()[0].state,

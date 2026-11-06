@@ -49,6 +49,9 @@ def test_anthropic_maps_schema_and_cache_usage() -> None:
         body = json.loads(request.content)
         assert request.url.path == "/v1/messages"
         assert request.headers["anthropic-version"] == "2026-10-21"
+        # API keys go in x-api-key; Bearer would be read as an OAuth token and get a 401.
+        assert request.headers["x-api-key"] == "fixture-key"
+        assert "authorization" not in request.headers
         assert body["system"] == "policy" and body["messages"][0]["role"] == "user"
         field = body["output_config"]["format"]["schema"]["properties"]["ok"]
         assert "maxLength" not in field and "maxLength" in field["description"]
@@ -131,6 +134,8 @@ def test_catalog_pagination_and_rich_metadata() -> None:
                     "last_id": "a",
                 },
             )
+        assert request.headers["x-api-key"] == "fixture-key"
+        assert "authorization" not in request.headers
         assert request.url.params["after_id"] == "a"
         return httpx.Response(200, json={"data": [{"id": "claude-b"}], "has_more": False})
 

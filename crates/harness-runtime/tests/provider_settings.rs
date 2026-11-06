@@ -114,3 +114,69 @@ fn python_keeps_absolute_virtualenv_symlink_path() {
         .unwrap();
     assert_eq!(resolved, link);
 }
+
+#[test]
+fn automatic_tiers_select_workers_across_providers_and_escalate_risk() {
+    use harness_core::domain::{Complexity, Risk, RunId, Task, UseCase};
+    let mut settings = ProviderSettings::default();
+    for (provider, tier, price) in [
+        ("small", "low", 0.1),
+        ("general", "medium", 1.0),
+        ("reasoning", "high", 5.0),
+    ] {
+        settings.providers.push(ProviderProfile {
+            id: provider.into(),
+            kind: ProviderKind::Compatible,
+            base_url: "https://example.test/v1".into(),
+            credential: CredentialRef::Environment {
+                variable: "UNUSED_TEST_CREDENTIAL".into(),
+            },
+        });
+        settings.models.push(SavedModel {
+            id: format!("{provider}/worker"),
+            provider: provider.into(),
+            model_id: "worker".into(),
+            display_name: provider.into(),
+            context_window: Some(32000),
+            max_output_tokens: Some(4096),
+            input_usd_per_million_tokens: Some(price),
+            output_usd_per_million_tokens: Some(price * 2.0),
+            structured_output: true,
+            tier: tier.into(),
+            metadata_source: "test fixture".into(),
+        });
+    }
+    let mut plan: harness_core::plan::PlanProposal = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/plans/valid_plan.json"
+    ))
+    .unwrap();
+    let mut task = Task::new(RunId::new("routing-test").unwrap(), plan.tasks.remove(0)).unwrap();
+    task.spec.limits.cost_cap_usd = 1.0;
+    let config = settings.live_config().unwrap();
+    for (complexity, risk, expected) in [
+        (Complexity::Low, Risk::Low, "small"),
+        (Complexity::Medium, Risk::Low, "general"),
+        (Complexity::High, Risk::Low, "reasoning"),
+        (Complexity::Low, Risk::High, "reasoning"),
+    ] {
+        task.spec.complexity = complexity;
+        task.spec.risk = risk;
+        assert_eq!(config.select(&task).unwrap().provider, expected);
+    }
+    settings
+        .routes
+        .insert("review".into(), "general/worker".into());
+    task.spec.use_case = UseCase::Review;
+    assert_eq!(
+        settings
+            .live_config()
+            .unwrap()
+            .select(&task)
+            .unwrap()
+            .provider,
+        "general"
+    );
+    // Incomplete metadata must never silently route a worker to this account.
+    settings.models[1].structured_output = false;
+    assert!(settings.live_config().is_err());
+}

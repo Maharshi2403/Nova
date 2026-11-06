@@ -123,12 +123,18 @@ impl WorkerPool {
             self.jobs.spawn(async move {
                 let _guard = guard;
                 let result = future.await;
-                if result.is_err() {
+                if let Err(reason) = &result {
                     let current = store
                         .get_task(&task_run, &task_id)
                         .await
                         .map_err(|e| e.to_string())?;
                     if !current.state.is_terminal() && current.state != TaskState::Blocked {
+                        let category = harness_core::redaction::redact(reason);
+                        let category = category.chars().take(256).collect::<String>();
+                        store
+                            .record_task_failure(&task_run, &task_id, current.attempt, &category)
+                            .await
+                            .map_err(|e| e.to_string())?;
                         store
                             .transition_task(
                                 &task_run,

@@ -5,12 +5,39 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
+import re
 from typing import Any
 from urllib.parse import urlsplit
 
 import httpx
 
 from harness_ai.providers.base import PermanentProviderError, TransientProviderError
+
+_CODE = re.compile(r"[A-Za-z0-9_.\-]{1,64}")
+ERROR_BODY_PEEK_BYTES = 4096
+
+
+async def http_error(response: httpx.Response) -> str:
+    """`provider HTTP <status>` plus the provider's error code/type identifier, if any.
+
+    Only a short identifier such as `insufficient_quota` is kept; messages and bodies are
+    never surfaced because they can echo prompts or account details.
+    """
+    detail = f"provider HTTP {response.status_code}"
+    try:
+        data = bytearray()
+        async for chunk in response.aiter_bytes():
+            data.extend(chunk)
+            if len(data) >= ERROR_BODY_PEEK_BYTES:
+                break
+        error = json.loads(bytes(data)).get("error")
+        candidates = [error.get("code"), error.get("type")] if isinstance(error, dict) else []
+    except (ValueError, TypeError, AttributeError, httpx.HTTPError):
+        candidates = []
+    for value in candidates:
+        if isinstance(value, str) and _CODE.fullmatch(value):
+            return f"{detail} {value}"
+    return detail
 
 
 def validate_base(base: str) -> str:
@@ -58,9 +85,9 @@ async def request_json(
             client.stream(method, url, headers=headers, json=body, params=params) as response,
         ):
             if response.status_code == 429 or 500 <= response.status_code <= 599:
-                raise TransientProviderError(f"provider HTTP {response.status_code}")
+                raise TransientProviderError(await http_error(response))
             if response.status_code != 200:
-                raise PermanentProviderError(f"provider HTTP {response.status_code}")
+                raise PermanentProviderError(await http_error(response))
             data = bytearray()
             async for chunk in response.aiter_bytes():
                 if len(data) + len(chunk) > limit:

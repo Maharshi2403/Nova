@@ -69,6 +69,67 @@ pub struct Store {
 }
 
 impl Store {
+    /// Persist a bounded, redacted worker failure for operator diagnostics.
+    pub async fn record_task_failure(
+        &self,
+        run: &harness_core::domain::RunId,
+        task: &harness_core::domain::TaskId,
+        attempt: u32,
+        reason: &str,
+    ) -> Result<(), StoreError> {
+        sqlx::query("INSERT INTO events (run_id, task_id, kind, attempt, payload_json) VALUES (?, ?, 'task.failure', ?, ?)")
+            .bind(run.as_str())
+            .bind(task.as_str())
+            .bind(i64::from(attempt))
+            .bind(serde_json::json!({"reason":reason}).to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Append a run-level diagnostic event (e.g. main-agent planning outcome).
+    pub async fn record_run_event(
+        &self,
+        run: &harness_core::domain::RunId,
+        kind: &str,
+        payload: &serde_json::Value,
+    ) -> Result<(), StoreError> {
+        sqlx::query("INSERT INTO events (run_id, kind, payload_json) VALUES (?, ?, ?)")
+            .bind(run.as_str())
+            .bind(kind)
+            .bind(payload.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Most recent run-level event whose kind starts with `prefix`, as (kind, payload).
+    pub async fn latest_run_event(
+        &self,
+        run: &harness_core::domain::RunId,
+        prefix: &str,
+    ) -> Result<Option<(String, serde_json::Value)>, StoreError> {
+        let row: Option<(String, String)> = sqlx::query_as("SELECT kind, payload_json FROM events WHERE run_id = ? AND task_id IS NULL AND substr(kind, 1, length(?)) = ? ORDER BY sequence DESC LIMIT 1")
+            .bind(run.as_str()).bind(prefix).bind(prefix).fetch_optional(&self.pool).await?;
+        Ok(row.map(|(kind, payload)| {
+            (
+                kind,
+                serde_json::from_str(&payload).unwrap_or(serde_json::Value::Null),
+            )
+        }))
+    }
+
+    pub async fn latest_task_failure(
+        &self,
+        run: &harness_core::domain::RunId,
+        task: &harness_core::domain::TaskId,
+    ) -> Result<Option<String>, StoreError> {
+        let payload: Option<String> = sqlx::query_scalar("SELECT payload_json FROM events WHERE run_id = ? AND task_id = ? AND kind = 'task.failure' ORDER BY sequence DESC LIMIT 1")
+            .bind(run.as_str()).bind(task.as_str()).fetch_optional(&self.pool).await?;
+        Ok(payload
+            .and_then(|p| serde_json::from_str::<serde_json::Value>(&p).ok())
+            .and_then(|v| v["reason"].as_str().map(str::to_owned)))
+    }
     /// Open (creating if needed) a database file and apply all migrations.
     ///
     /// Always WAL, foreign keys enforced, 5s busy timeout. Do not place the file

@@ -81,7 +81,8 @@ class JSONProvider:
         ):
             raise PermanentProviderError("native Anthropic uses its official endpoint")
         self.headers = (
-            {"Authorization": f"Bearer {api_key}", "anthropic-version": "2026-10-21"}
+            # Anthropic API keys use x-api-key; Bearer is only for OAuth tokens (401 otherwise).
+            {"x-api-key": api_key, "anthropic-version": "2026-10-21"}
             if kind == "anthropic"
             else {"Authorization": f"Bearer {api_key}"}
         )
