@@ -57,6 +57,10 @@ def anthropic_schema(schema: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+# Verified 2026-11-07 against https://platform.claude.com/docs/en/api/versioning
+ANTHROPIC_API_VERSION = "2026-10-21"
+
+
 class JSONProvider:
     def __init__(
         self,
@@ -82,7 +86,7 @@ class JSONProvider:
             raise PermanentProviderError("native Anthropic uses its official endpoint")
         self.headers = (
             # Anthropic API keys use x-api-key; Bearer is only for OAuth tokens (401 otherwise).
-            {"x-api-key": api_key, "anthropic-version": "2026-10-21"}
+            {"x-api-key": api_key, "anthropic-version": ANTHROPIC_API_VERSION}
             if kind == "anthropic"
             else {"Authorization": f"Bearer {api_key}"}
         )
@@ -152,11 +156,11 @@ class JSONProvider:
                     raise ValueError
                 text = "".join(c["text"] for c in response["content"] if c.get("type") == "text")
                 original = raw.get("input_tokens")
-                cached = raw.get("cache_read_input_tokens")
+                cached = raw.get("cache_read_input_tokens") or 0
                 input_tokens = (
                     None
                     if original is None
-                    else original + raw.get("cache_creation_input_tokens", 0) + (cached or 0)
+                    else original + (raw.get("cache_creation_input_tokens") or 0) + cached
                 )
                 usage = Usage(
                     input_tokens=input_tokens,

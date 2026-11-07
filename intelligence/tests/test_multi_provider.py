@@ -172,3 +172,45 @@ def test_response_cap_and_redirect_rejected() -> None:
                 "compatible", lambda _: httpx.Response(200, content=b"x" * (2 * 1024 * 1024 + 1))
             )
         )
+
+
+def anthropic_result(usage: Any, stop: str = "end_turn") -> Any:
+    return complete(
+        provider(
+            "anthropic",
+            lambda _: httpx.Response(
+                200,
+                json={
+                    "content": [{"type": "text", "text": '{"ok":"yes"}'}],
+                    "stop_reason": stop,
+                    "usage": usage,
+                },
+            ),
+        )
+    )
+
+
+def test_anthropic_null_cache_fields_parse() -> None:
+    result = anthropic_result(
+        {
+            "input_tokens": 7,
+            "output_tokens": 3,
+            "cache_creation_input_tokens": None,
+            "cache_read_input_tokens": None,
+        }
+    )
+    assert result.usage.input_tokens == 7
+    assert result.usage.cached_input_tokens == 0
+
+
+def test_anthropic_missing_usage_is_unknown() -> None:
+    for usage in [None, {}, {"input_tokens": None, "cache_read_input_tokens": 10}]:
+        result = anthropic_result(usage)
+        assert result.usage.input_tokens is None
+        assert result.usage.output_tokens is None
+
+
+@pytest.mark.parametrize("stop", ["max_tokens", "tool_use", "refusal", "pause_turn"])
+def test_anthropic_non_end_turn_stop_reason_mapped(stop: str) -> None:
+    with pytest.raises(PermanentProviderError):
+        anthropic_result({"input_tokens": 1, "output_tokens": 1}, stop)

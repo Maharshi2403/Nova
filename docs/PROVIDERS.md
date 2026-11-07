@@ -90,3 +90,9 @@ API references: [OpenAI models](https://developers.openai.com/api/docs/models),
 [Claude structured output](https://platform.claude.com/docs/en/build-with-claude/structured-outputs),
 [Claude pricing](https://platform.claude.com/docs/en/about-claude/pricing),
 [OpenRouter catalog](https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties).
+
+Anthropic requests pin `anthropic-version` through the adapter's
+`ANTHROPIC_API_VERSION` constant (`2026-10-21`, verified 2026-11-07 against
+https://platform.claude.com/docs/en/api/versioning). Null or absent cache token
+counts contribute zero; absent input/output token counts remain unknown.
+Non-`end_turn` completions fail rather than being treated as complete actions.

@@ -874,3 +874,26 @@ Validation on macOS arm64, 2026-11-07:
 - Python full gate on main (unchanged Python for this ticket): ruff lint/format, mypy and pytest — PASS, 118 tests.
 - `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 3` — PASS.
 - `git diff --check` — PASS. No paid calls, push, tags or dependencies added.
+
+## H-086 — Anthropic null-safe usage and documented API version
+
+Cache read/creation nulls contribute zero without converting missing input or
+output usage to known values. API version remains `2026-10-21`, now centralized
+in ANTHROPIC_API_VERSION with a dated official source comment. Verified against
+https://platform.claude.com/docs/en/api/versioning on 2026-11-07: the current
+version history explicitly lists 2026-10-21. No live provider calls were made.
+
+Added `anthropic_null_cache_fields_parse`, `anthropic_missing_usage_is_unknown`,
+and parameterized `anthropic_non_end_turn_stop_reason_mapped`. The initial
+null-cache regression failed as expected; null creation tokens raised TypeError
+(and null cached usage was not zero). Other cases protect unknown usage and
+existing rejection of nonterminal/truncated responses. Provider docs updated.
+
+Validation on macOS arm64, 2026-11-07:
+- `uv run --locked --offline --project intelligence pytest -q intelligence/tests/test_multi_provider.py` — before fix: 1 failed, 22 passed; after fix: 23 passed.
+- From `intelligence/`: `uv run --locked --offline ruff check .`, `uv run --locked --offline ruff format --check .`, `uv run --locked --offline mypy`, `uv run --locked --offline pytest -q` — all PASS, 124 tests.
+- `cargo fmt --all --check` — PASS.
+- `cargo clippy --locked --offline --workspace --all-targets -- -D warnings` — PASS.
+- `cargo test --locked --offline --workspace` — PASS, 271 tests.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 3` — PASS.
+- `git diff --check` — PASS. No paid calls, push or tags.
