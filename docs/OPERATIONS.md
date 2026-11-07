@@ -129,3 +129,10 @@ On daemon startup, planning runs left by the previous daemon are marked failed
 with `planning interrupted`; resubmit the goal to restart planning. Generated
 plans and their `planning.completed` evidence are persisted atomically, so a
 plan cannot appear approved for review without its planning result metadata.
+
+Whole-file `repo.patch` rewrites of existing files larger than the read output
+cap (64 KiB) require complete reads in the same broker session. Read successive
+line ranges until the whole unchanged file has been covered, or use exact
+`old`/`new` replacement edits. Byte-clipped reads and reads of an older file
+version do not authorize a rewrite. New file creation remains available up to
+the write-size cap.

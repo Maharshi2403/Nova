@@ -3,9 +3,10 @@
 //! Every result is bounded. Paths are resolved by [`PathPolicy`], and protected files
 //! (Git internals, key material, dotenv files) never appear in results.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap, hash_map::RandomState};
+use std::hash::BuildHasher;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use globset::GlobBuilder;
 use harness_core::messages::{ToolRequest, ToolResponse};
@@ -51,6 +52,14 @@ struct SearchArgs {
 pub struct RepoReadBroker {
     policy: PathPolicy,
     allowed: BTreeSet<String>,
+    reads: HashMap<PathBuf, ReadCoverage>,
+    hashes: RandomState,
+}
+
+struct ReadCoverage {
+    fingerprint: u64,
+    lines: usize,
+    ranges: Vec<(usize, usize)>,
 }
 
 fn fail(code: &str, detail: impl std::fmt::Display) -> ToolResponse {
@@ -105,10 +114,19 @@ impl RepoReadBroker {
         Ok(Self {
             policy: PathPolicy::new(worktree)?,
             allowed: allowed_tools.iter().cloned().collect(),
+            reads: HashMap::new(),
+            hashes: RandomState::new(),
         })
     }
 
-    fn read(&self, request: &ToolRequest) -> ToolResponse {
+    pub(super) fn fully_read(&self, path: &Path, bytes: &[u8]) -> bool {
+        self.reads.get(path).is_some_and(|coverage| {
+            coverage.fingerprint == self.hashes.hash_one(bytes)
+                && coverage.ranges.first() == Some(&(0, coverage.lines))
+        })
+    }
+
+    fn read(&mut self, request: &ToolRequest) -> ToolResponse {
         let args: ReadArgs = match parse(request) {
             Ok(a) => a,
             Err(r) => return r,
@@ -136,6 +154,39 @@ impl RepoReadBroker {
         let mut content = lines[from..to].join("\n");
         let byte_capped = clip(&mut content, MAX_OUTPUT_BYTES);
         let truncated = file_truncated || to < lines.len() || byte_capped;
+        if !file_truncated
+            && !byte_capped
+            && std::str::from_utf8(&bytes).is_ok()
+            && (self.reads.len() < MAX_GLOB_RESULTS || self.reads.contains_key(&full))
+        {
+            let fingerprint = self.hashes.hash_one(&bytes);
+            let coverage = self.reads.entry(full).or_insert_with(|| ReadCoverage {
+                fingerprint,
+                lines: lines.len(),
+                ranges: Vec::new(),
+            });
+            if coverage.fingerprint != fingerprint {
+                *coverage = ReadCoverage {
+                    fingerprint,
+                    lines: lines.len(),
+                    ranges: Vec::new(),
+                };
+            }
+            coverage.ranges.push((from, to));
+            coverage.ranges.sort_unstable();
+            let mut merged: Vec<(usize, usize)> = Vec::new();
+            for &(from, to) in &coverage.ranges {
+                if let Some(last) = merged.last_mut()
+                    && from <= last.1
+                {
+                    last.1 = last.1.max(to);
+                } else {
+                    merged.push((from, to));
+                }
+            }
+            coverage.ranges = merged;
+        }
+
         success(json!({
             "content": content,
             "start_line": start,

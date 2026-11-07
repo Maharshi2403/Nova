@@ -12,7 +12,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::paths::{PathError, PathPolicy};
-use super::read::{MAX_SCAN_BYTES, RepoReadBroker};
+use super::read::{MAX_OUTPUT_BYTES, MAX_SCAN_BYTES, RepoReadBroker};
 use crate::supervisor::ToolBroker;
 
 pub const MAX_WRITE_BYTES: usize = 1024 * 1024;
@@ -96,7 +96,32 @@ impl RepoWriteBroker {
         };
 
         let new_text = match (&args.content, &args.old, &args.new) {
-            (Some(content), None, None) => content.clone(),
+            (Some(content), None, None) => {
+                match std::fs::metadata(&full) {
+                    Ok(meta) if meta.len() > MAX_OUTPUT_BYTES as u64 => {
+                        let current = match read_text(&full) {
+                            Ok(text) => text,
+                            Err(_) => {
+                                return fail(
+                                    "rewrite_denied",
+                                    "use old/new edits or read whole file first",
+                                );
+                            }
+                        };
+                        if !self.read.fully_read(&full, current.as_bytes()) {
+                            return fail(
+                                "rewrite_denied",
+                                "use old/new edits or read whole file first",
+                            );
+                        }
+                    }
+                    Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                        return fail("io_error", error);
+                    }
+                    _ => {}
+                }
+                content.clone()
+            }
             (None, Some(old), Some(new)) => {
                 if old.is_empty() {
                     return fail("bad_arguments", "old must not be empty");

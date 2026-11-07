@@ -219,3 +219,132 @@ async fn patch_requires_tool_grant_and_reads_still_work() {
         .await;
     assert!(r.ok);
 }
+
+#[tokio::test]
+async fn large_file_blind_rewrite_denied() {
+    let mut f = fx();
+    let content = "0123456789abcdef\n".repeat(5000);
+    std::fs::write(f.wt.join("src/large.py"), &content).unwrap();
+    let r = patch(
+        &mut f.broker,
+        json!({"path":"src/large.py", "content":"truncated"}),
+    )
+    .await;
+    assert!(err(&r).contains("use old/new edits or read whole file first"));
+    assert_eq!(
+        std::fs::read_to_string(f.wt.join("src/large.py")).unwrap(),
+        content
+    );
+}
+
+#[tokio::test]
+async fn rewrite_after_full_read_allowed() {
+    let mut f = fx();
+    std::fs::write(f.wt.join("src/large.py"), "0123456789abcdef\n".repeat(5000)).unwrap();
+    for start in [1, 2001, 4001] {
+        let r = f
+            .broker
+            .handle(&ToolRequest {
+                tool: "repo.read".into(),
+                arguments: json!({"path":"src/large.py", "start_line":start, "max_lines":2000})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            })
+            .await;
+        assert!(r.ok);
+    }
+    assert!(
+        patch(
+            &mut f.broker,
+            json!({"path":"src/large.py", "content":"replacement"})
+        )
+        .await
+        .ok
+    );
+}
+
+#[tokio::test]
+async fn new_file_content_allowed() {
+    let mut f = fx();
+    assert!(
+        patch(
+            &mut f.broker,
+            json!({"path":"src/new.py", "content":"x".repeat(100000)})
+        )
+        .await
+        .ok
+    );
+}
+
+#[tokio::test]
+async fn partial_or_stale_reads_do_not_authorize_rewrite() {
+    let mut f = fx();
+    let path = f.wt.join("src/large.py");
+    std::fs::write(&path, "0123456789abcdef\n".repeat(5000)).unwrap();
+    for start in [1, 4001] {
+        assert!(
+            f.broker
+                .handle(&ToolRequest {
+                    tool: "repo.read".into(),
+                    arguments: json!({"path":"src/large.py", "start_line":start, "max_lines":2000})
+                        .as_object()
+                        .unwrap()
+                        .clone()
+                })
+                .await
+                .ok
+        );
+    }
+    assert!(
+        !patch(
+            &mut f.broker,
+            json!({"path":"src/large.py", "content":"lost middle"})
+        )
+        .await
+        .ok
+    );
+    assert!(
+        f.broker
+            .handle(&ToolRequest {
+                tool: "repo.read".into(),
+                arguments: json!({"path":"src/large.py", "start_line":2001, "max_lines":2000})
+                    .as_object()
+                    .unwrap()
+                    .clone()
+            })
+            .await
+            .ok
+    );
+    std::fs::write(&path, "fedcba9876543210\n".repeat(5000)).unwrap();
+    assert!(
+        !patch(
+            &mut f.broker,
+            json!({"path":"src/large.py", "content":"stale"})
+        )
+        .await
+        .ok
+    );
+}
+
+#[tokio::test]
+async fn byte_clipped_read_does_not_authorize_rewrite() {
+    let mut f = fx();
+    std::fs::write(f.wt.join("src/large.py"), "x".repeat(100000)).unwrap();
+    let r = f
+        .broker
+        .handle(&ToolRequest {
+            tool: "repo.read".into(),
+            arguments: json!({"path":"src/large.py"}).as_object().unwrap().clone(),
+        })
+        .await;
+    assert!(r.ok);
+    assert!(
+        !patch(
+            &mut f.broker,
+            json!({"path":"src/large.py", "content":"clipped"})
+        )
+        .await
+        .ok
+    );
+}

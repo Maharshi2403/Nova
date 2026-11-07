@@ -897,3 +897,34 @@ Validation on macOS arm64, 2026-11-07:
 - `cargo test --locked --offline --workspace` — PASS, 271 tests.
 - `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 3` — PASS.
 - `git diff --check` — PASS. No paid calls, push or tags.
+
+## H-084 — Prevent blind whole-file rewrites of large files
+
+Existing files above the 64 KiB read-output cap require complete line coverage
+in the current broker session before a content rewrite. Coverage uses canonical
+paths and session-keyed content fingerprints; changed files invalidate previous
+coverage. Byte-clipped, scan-truncated or invalid-UTF8 reads do not authorize a
+rewrite. Coverage is merged and the tracked path count is capped at 500. New
+files and exact old/new replacement edits retain their existing size limits.
+No dependencies, protocol or schema changes. Operations docs updated.
+
+Tests: the first run of `cargo test --locked --offline -p harness-runtime --test broker_write`
+failed `large_file_blind_rewrite_denied` as expected (9 passed, 1 failed).
+After implementation, all 12 write tests and 7 read tests pass, including
+`rewrite_after_full_read_allowed`, `new_file_content_allowed`, partial/stale
+read coverage and byte-clipped-read denial. Existing traversal, symlink, secret
+and write-size adversarial tests remain intact.
+
+Validation on macOS arm64, 2026-11-07:
+- `cargo fmt --all --check` — PASS.
+- `cargo clippy --locked --offline --workspace --all-targets -- -D warnings` — PASS.
+- `cargo test --locked --offline --workspace` — PASS, 276 tests (pre-H-083 base).
+- Python full gate on main (unchanged Python for this ticket): ruff lint/format, mypy and pytest — PASS, 124 tests.
+- `uv run --locked --offline --project intelligence python scripts/offline_demo.py --tasks 3` — PASS.
+- `git diff --check` — PASS. No paid calls, push, tags or dependencies added.
+
+After rebasing onto H-083/H-086, the full Rust gate passed again (279 tests).
+The 100-task, fault and cancel offline demos also passed. The earlier H-085
+post-merge rustdoc failure was caused by simultaneous worktrees replacing
+shared target artifacts; serialized H-083 and H-086 main workspace gates both
+passed in full, superseding that artifact failure.
