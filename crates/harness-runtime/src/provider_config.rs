@@ -125,6 +125,10 @@ pub struct SavedModel {
     pub max_output_tokens: Option<u32>,
     pub input_usd_per_million_tokens: Option<f64>,
     pub output_usd_per_million_tokens: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cached_input_usd_per_million_tokens: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_write_usd_per_million_tokens: Option<f64>,
     pub structured_output: bool,
     pub tier: String,
     pub metadata_source: String,
@@ -212,6 +216,8 @@ impl ProviderSettings {
             for value in [
                 model.input_usd_per_million_tokens,
                 model.output_usd_per_million_tokens,
+                model.cached_input_usd_per_million_tokens,
+                model.cache_write_usd_per_million_tokens,
             ]
             .into_iter()
             .flatten()
@@ -480,6 +486,8 @@ impl ProviderSettings {
                         max_output_tokens: m.max_output_tokens.unwrap().min(8192),
                         input_usd_per_million_tokens: m.input_usd_per_million_tokens.unwrap(),
                         output_usd_per_million_tokens: m.output_usd_per_million_tokens.unwrap(),
+                        cached_input_usd_per_million_tokens: m.cached_input_usd_per_million_tokens,
+                        cache_write_usd_per_million_tokens: m.cache_write_usd_per_million_tokens,
                         available: true,
                         privacy: PrivacyClass::Private,
                     })

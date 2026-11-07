@@ -279,3 +279,17 @@ def test_cache_control_waits_for_pricing() -> None:
             timeout_seconds=1,
         )
     )
+
+
+def test_anthropic_cache_creation_count_preserved() -> None:
+    result = anthropic_result(
+        {
+            "input_tokens": 7,
+            "output_tokens": 3,
+            "cache_creation_input_tokens": 11,
+            "cache_read_input_tokens": 5,
+        }
+    )
+    assert result.usage.input_tokens == 23
+    assert result.usage.cache_creation_input_tokens == 11
+    assert result.usage.cached_input_tokens == 5

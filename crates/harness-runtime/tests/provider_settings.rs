@@ -141,6 +141,8 @@ fn automatic_tiers_select_workers_across_providers_and_escalate_risk() {
             max_output_tokens: Some(4096),
             input_usd_per_million_tokens: Some(price),
             output_usd_per_million_tokens: Some(price * 2.0),
+            cached_input_usd_per_million_tokens: Some(price * 0.1),
+            cache_write_usd_per_million_tokens: Some(price * 1.25),
             structured_output: true,
             tier: tier.into(),
             metadata_source: "test fixture".into(),
@@ -153,6 +155,23 @@ fn automatic_tiers_select_workers_across_providers_and_escalate_risk() {
     let mut task = Task::new(RunId::new("routing-test").unwrap(), plan.tasks.remove(0)).unwrap();
     task.spec.limits.cost_cap_usd = 1.0;
     let config = settings.live_config().unwrap();
+    for saved in &settings.models {
+        let model = config
+            .registry
+            .models
+            .iter()
+            .find(|model| model.id == saved.id)
+            .unwrap();
+        assert_eq!(
+            model.cached_input_usd_per_million_tokens,
+            saved.cached_input_usd_per_million_tokens
+        );
+        assert_eq!(
+            model.cache_write_usd_per_million_tokens,
+            saved.cache_write_usd_per_million_tokens
+        );
+    }
+
     for (complexity, risk, expected) in [
         (Complexity::Low, Risk::Low, "small"),
         (Complexity::Medium, Risk::Low, "general"),

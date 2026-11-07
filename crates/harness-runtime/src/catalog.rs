@@ -64,6 +64,8 @@ pub fn normalize(profile: &ProviderProfile, row: &Value) -> Option<SavedModel> {
         max_output_tokens: None,
         input_usd_per_million_tokens: None,
         output_usd_per_million_tokens: None,
+        cached_input_usd_per_million_tokens: None,
+        cache_write_usd_per_million_tokens: None,
         structured_output: false,
         tier: "medium".into(),
         metadata_source: "unknown; configure explicitly".into(),

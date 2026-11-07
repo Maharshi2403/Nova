@@ -105,3 +105,10 @@ cache hit. Actual cache token accounting comes from provider usage fields.
 
 Explicit cache boundaries remain disabled by default until cache-write pricing
 is enforced by Rust (H-087b); stable prompt ordering applies immediately.
+
+Model registries and saved model metadata accept optional
+`cached_input_usd_per_million_tokens` and `cache_write_usd_per_million_tokens`.
+Omitted values mean unknown, not zero. Supplied prices must be finite and
+non-negative. The provider adapter preserves Anthropic cache-creation token
+counts separately from total input and cached-read counts; older adapter
+results may omit this optional count.

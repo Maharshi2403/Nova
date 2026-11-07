@@ -17,6 +17,7 @@ class Usage(BaseModel):
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
     cached_input_tokens: int | None = Field(default=None, ge=0)
+    cache_creation_input_tokens: int | None = Field(default=None, ge=0)
     source: Literal["provider", "mock", "unknown"] = "unknown"
 
 

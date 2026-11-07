@@ -38,3 +38,23 @@ fn unsupported_capability_rejected() {
             .is_ok()
     );
 }
+
+#[test]
+fn optional_cache_prices_roundtrip_and_validate() {
+    let original = ModelRegistry::from_json(VALID).unwrap();
+    assert_eq!(original.models[0].cached_input_usd_per_million_tokens, None);
+    let mut value: serde_json::Value = serde_json::from_str(VALID).unwrap();
+    value["models"][0]["cached_input_usd_per_million_tokens"] = 0.1.into();
+    value["models"][0]["cache_write_usd_per_million_tokens"] = 1.25.into();
+    let parsed = ModelRegistry::from_json(&value.to_string()).unwrap();
+    assert_eq!(
+        parsed.models[0].cache_write_usd_per_million_tokens,
+        Some(1.25)
+    );
+    assert_eq!(
+        serde_json::to_value(parsed).unwrap()["models"][0]["cached_input_usd_per_million_tokens"],
+        0.1
+    );
+    value["models"][0]["cache_write_usd_per_million_tokens"] = (-1.0).into();
+    assert!(ModelRegistry::from_json(&value.to_string()).is_err());
+}

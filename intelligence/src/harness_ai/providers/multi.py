@@ -197,6 +197,7 @@ class JSONProvider:
                     input_tokens=input_tokens,
                     output_tokens=raw.get("output_tokens"),
                     cached_input_tokens=cached,
+                    cache_creation_input_tokens=raw.get("cache_creation_input_tokens") or 0,
                     source="provider",
                 )
             else:

@@ -241,6 +241,8 @@ pub fn models(root: &Path, command: ModelCommand) -> Result<String, String> {
                 max_output_tokens: Some(max_output),
                 input_usd_per_million_tokens: Some(input_price),
                 output_usd_per_million_tokens: Some(output_price),
+                cached_input_usd_per_million_tokens: None,
+                cache_write_usd_per_million_tokens: None,
                 structured_output,
                 tier,
                 metadata_source: "operator configured".into(),

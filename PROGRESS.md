@@ -1011,3 +1011,28 @@ Final validation on macOS arm64, 2026-11-07, after H-083b and H-087a rebase:
 Initial gate attempts exposed a missing worktree venv (fixed with uv sync) and
 the planning-status race fixed separately as H-083b. Separate target directories
 now isolate worktree compiler artifacts from main.
+
+## H-087b — Compatible cache price and token metadata
+
+Added optional cached-input/cache-write prices to the model registry and saved
+model metadata, validating finite non-negative values and preserving prices
+when constructing the live registry. Existing JSON configurations deserialize
+without new fields. Catalog/CLI-created models leave unknown prices absent.
+Provider results carry an optional cache_creation_input_tokens count; this is
+inside the existing arbitrary tool result, not a new worker envelope field.
+Anthropic preserves it independently from total and cached-read input tokens.
+
+Added optional_cache_prices_roundtrip_and_validate and
+anthropic_cache_creation_count_preserved. The Python regression failed before
+the implementation (1 failed, 25 passed), then all 26 provider tests passed.
+The Rust registry regression references missing fields on the baseline; it
+covers old-config compatibility, roundtrip preservation and negative prices.
+H-087c still needs to apply these prices authoritatively and enable caching.
+
+Validation on macOS arm64, 2026-11-07, isolated build target:
+- `CARGO_TARGET_DIR=/private/tmp/nova-h087b-target cargo fmt --all --check` — PASS.
+- `CARGO_TARGET_DIR=/private/tmp/nova-h087b-target cargo clippy --locked --offline --workspace --all-targets -- -D warnings` — PASS.
+- `CARGO_TARGET_DIR=/private/tmp/nova-h087b-target cargo test --locked --offline --workspace` — PASS, 281 tests (pre-H-096 base).
+- From `intelligence/`, ruff lint/format, mypy, `uv run --locked --offline pytest -q` — PASS, 128 tests.
+- Build plus offline demos using isolated debug binaries: tasks 3 and 100, fault, cancel — all PASS.
+- `git diff --check` — PASS. No paid calls, push or tags.

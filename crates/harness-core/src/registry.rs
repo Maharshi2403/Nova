@@ -24,6 +24,10 @@ pub struct ModelDefinition {
     pub max_output_tokens: u32,
     pub input_usd_per_million_tokens: f64,
     pub output_usd_per_million_tokens: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cached_input_usd_per_million_tokens: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_write_usd_per_million_tokens: Option<f64>,
     pub available: bool,
     pub privacy: PrivacyClass,
 }
@@ -104,6 +108,13 @@ impl ModelRegistry {
                 || !model.output_usd_per_million_tokens.is_finite()
                 || model.input_usd_per_million_tokens < 0.0
                 || model.output_usd_per_million_tokens < 0.0
+                || [
+                    model.cached_input_usd_per_million_tokens,
+                    model.cache_write_usd_per_million_tokens,
+                ]
+                .into_iter()
+                .flatten()
+                .any(|price| !price.is_finite() || price < 0.0)
             {
                 return Err(RegistryError::Invalid(
                     "prices must be finite and non-negative".into(),
