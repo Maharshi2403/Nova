@@ -914,6 +914,9 @@ async fn goal_status(
             "this run was not planned by the main agent",
         ));
     };
+    // Planning events follow the associated run transition. Reload after the
+    // event so a terminal event cannot be paired with a pre-transition run.
+    let run = state.store.get_run(&run.id).await.map_err(store_error)?;
     let status = match kind.as_str() {
         "planning.completed" => "proposed",
         "planning.failed" => "failed",

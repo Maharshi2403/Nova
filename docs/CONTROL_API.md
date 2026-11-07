@@ -76,3 +76,7 @@ a `run.failed` event. Budget or path-lock denial leaves the run `running` and
 records a `run.stalled` reason once per unchanged reason. Execution can be
 started again after the constraint is resolved. `nova status` and the desktop
 run panel display this diagnostic.
+
+Goal status reads the run state after its planning event. A terminal planning
+outcome therefore cannot be paired with a stale pre-transition run state during
+background planning completion.

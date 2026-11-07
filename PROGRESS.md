@@ -928,3 +928,27 @@ The 100-task, fault and cancel offline demos also passed. The earlier H-085
 post-merge rustdoc failure was caused by simultaneous worktrees replacing
 shared target artifacts; serialized H-083 and H-086 main workspace gates both
 passed in full, superseding that artifact failure.
+
+## H-083b — Keep terminal planning status paired with fresh run state
+
+The H-096 workspace gate exposed an existing read-order race in goal_status:
+`planning.status` was failed while `run.state` was still the earlier Planning
+snapshot. Evidence: `/private/tmp/nova-h096-rust.log` from the failed daemon API
+suite before H-083b (19 passed, 1 failed). The endpoint now reloads the run after
+reading its planning event; terminal events follow their associated transition.
+No schema or protocol changes and no state-machine changes.
+
+The original `goal_without_connected_provider_fails_with_visible_reason` test
+passes unchanged. Added `terminal_planning_status_never_has_stale_run_state`,
+which repeatedly polls ten isolated goals through failure and checks both
+states together. All 21 daemon API tests pass. The new test protects the same
+race observed in the existing test; without the reordered read, the first run
+snapshot can predate the terminal event. Control API docs updated.
+
+Validation on macOS arm64, 2026-11-07:
+- `cargo fmt --all --check` — PASS.
+- `cargo clippy --locked --offline --workspace --all-targets -- -D warnings` — PASS.
+- `cargo test --locked --offline --workspace` — PASS, 280 tests.
+- From `intelligence/`: ruff lint/format, mypy and `uv run --locked --offline pytest -q` — PASS, 124 tests.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 3` — PASS.
+- `git diff --check` — PASS. No paid calls, push, tags or dependencies added.

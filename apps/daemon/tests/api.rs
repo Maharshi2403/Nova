@@ -817,3 +817,52 @@ async fn goal_without_connected_provider_fails_with_visible_reason() {
         "{planning}"
     );
 }
+
+#[tokio::test]
+async fn terminal_planning_status_never_has_stale_run_state() {
+    let (data, store, repo) = fixture().await;
+    let project = Project::new(
+        ProjectId::new("p").unwrap(),
+        "fixture",
+        repo.path().to_str().unwrap(),
+    )
+    .unwrap();
+    store.create_project(&project).await.unwrap();
+    let app = harness_daemon::api_router_with_settings(
+        TOKEN.into(),
+        store,
+        None,
+        data.path().to_path_buf(),
+    );
+    for _ in 0..10 {
+        let (_, accepted) = send(
+            &app,
+            local(Request::post("/v1/goals"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({"project_id":"p", "goal":"Add a greeting module"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await;
+        let id = accepted["run"]["id"].as_str().unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let (_, value) = send(
+                    &app,
+                    local(Request::get(format!("/v1/goals/{id}")))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await;
+                if value["planning"]["status"] == "failed" {
+                    assert_eq!(value["run"]["state"], "failed");
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+}
