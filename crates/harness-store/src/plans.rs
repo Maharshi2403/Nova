@@ -9,7 +9,7 @@ use harness_core::plan::PlanProposal;
 use harness_core::state;
 use sqlx::Row;
 
-use crate::repository::{Repository, enum_to_text, to_i64};
+use crate::repository::{enum_to_text, to_i64};
 use crate::{Store, StoreError};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,16 +108,103 @@ impl PlanRepository for Store {
         run_id: &RunId,
         plan: &PlanProposal,
     ) -> Result<PlanRecord, StoreError> {
-        let order = plan.validate()?;
-        let run = self.get_run(run_id).await?;
-        if run.state != RunState::Planning {
-            return Err(StoreError::PlanNotDecidable("run is not in planning"));
+        self.propose_plan_inner(run_id, plan, None).await
+    }
+
+    async fn approve_plan(&self, run_id: &RunId, version: u32) -> Result<PlanRecord, StoreError> {
+        let record = self.load_plan(run_id, version).await?;
+        if record.status != PlanStatus::Proposed {
+            return Err(StoreError::PlanNotDecidable("plan already decided"));
         }
+        state::transition(TaskState::Proposed, TaskState::Pending)?;
+        let mut tx = self.pool().begin().await?;
+        Self::set_run_state(
+            &mut tx,
+            run_id,
+            RunState::AwaitingApproval,
+            RunState::Running,
+        )
+        .await?;
+        sqlx::query(
+            "UPDATE plans SET status = 'approved', decided_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
+             WHERE run_id = ? AND version = ? AND status = 'proposed'",
+        )
+        .bind(run_id.as_str())
+        .bind(i64::from(version))
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "UPDATE tasks SET state = 'pending', revision = revision + 1 \
+             WHERE run_id = ? AND state = 'proposed'",
+        )
+        .bind(run_id.as_str())
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("INSERT INTO events (run_id, kind, attempt) VALUES (?, 'plan.approved', ?)")
+            .bind(run_id.as_str())
+            .bind(to_i64(u64::from(version))?)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        self.load_plan(run_id, version).await
+    }
+
+    async fn get_plan(&self, run_id: &RunId, version: u32) -> Result<PlanRecord, StoreError> {
+        self.load_plan(run_id, version).await
+    }
+}
+
+impl Store {
+    /// Persist the generated plan and its planning evidence in one transaction.
+    pub async fn propose_planned_goal(
+        &self,
+        run_id: &RunId,
+        plan: &PlanProposal,
+        detail: &serde_json::Value,
+    ) -> Result<PlanRecord, StoreError> {
+        self.propose_plan_inner(run_id, plan, Some(detail)).await
+    }
+
+    /// Startup-only: no planner from the previous daemon instance can still own a run.
+    pub async fn recover_interrupted_planning(&self) -> Result<usize, StoreError> {
+        let mut tx = self.pool().begin().await?;
+        let ids: Vec<String> = sqlx::query_scalar("SELECT id FROM runs WHERE state = 'planning'")
+            .fetch_all(&mut *tx)
+            .await?;
+        for id in &ids {
+            let run = RunId::new(id.clone()).map_err(|_| StoreError::Corrupt("run id".into()))?;
+            Self::set_run_state(&mut tx, &run, RunState::Planning, RunState::Failed).await?;
+            sqlx::query(
+                "INSERT INTO events (run_id, kind, payload_json) VALUES (?, 'planning.failed', ?)",
+            )
+            .bind(id)
+            .bind(serde_json::json!({"reason": "planning interrupted"}).to_string())
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(ids.len())
+    }
+    async fn propose_plan_inner(
+        &self,
+        run_id: &RunId,
+        plan: &PlanProposal,
+        detail: Option<&serde_json::Value>,
+    ) -> Result<PlanRecord, StoreError> {
+        let order = plan.validate()?;
         let content = serde_json::to_string(plan)?;
         let by_id: std::collections::HashMap<&TaskId, &TaskSpec> =
             plan.tasks.iter().map(|t| (&t.id, t)).collect();
 
         let mut tx = self.pool().begin().await?;
+        let state: Option<String> = sqlx::query_scalar("SELECT state FROM runs WHERE id = ?")
+            .bind(run_id.as_str())
+            .fetch_optional(&mut *tx)
+            .await?;
+        if state.as_deref() != Some("planning") {
+            return Err(StoreError::PlanNotDecidable("run is not in planning"));
+        }
+
         let version: i64 =
             sqlx::query_scalar("SELECT COALESCE(MAX(version), 0) + 1 FROM plans WHERE run_id = ?")
                 .bind(run_id.as_str())
@@ -172,53 +259,15 @@ impl PlanRepository for Store {
             .bind(version)
             .execute(&mut *tx)
             .await?;
+        if let Some(detail) = detail {
+            sqlx::query("INSERT INTO events (run_id, kind, payload_json) VALUES (?, 'planning.completed', ?)")
+                .bind(run_id.as_str()).bind(detail.to_string()).execute(&mut *tx).await?;
+        }
         tx.commit().await?;
         self.load_plan(
             run_id,
             u32::try_from(version).map_err(|_| StoreError::Corrupt("version".into()))?,
         )
         .await
-    }
-
-    async fn approve_plan(&self, run_id: &RunId, version: u32) -> Result<PlanRecord, StoreError> {
-        let record = self.load_plan(run_id, version).await?;
-        if record.status != PlanStatus::Proposed {
-            return Err(StoreError::PlanNotDecidable("plan already decided"));
-        }
-        state::transition(TaskState::Proposed, TaskState::Pending)?;
-        let mut tx = self.pool().begin().await?;
-        Self::set_run_state(
-            &mut tx,
-            run_id,
-            RunState::AwaitingApproval,
-            RunState::Running,
-        )
-        .await?;
-        sqlx::query(
-            "UPDATE plans SET status = 'approved', decided_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
-             WHERE run_id = ? AND version = ? AND status = 'proposed'",
-        )
-        .bind(run_id.as_str())
-        .bind(i64::from(version))
-        .execute(&mut *tx)
-        .await?;
-        sqlx::query(
-            "UPDATE tasks SET state = 'pending', revision = revision + 1 \
-             WHERE run_id = ? AND state = 'proposed'",
-        )
-        .bind(run_id.as_str())
-        .execute(&mut *tx)
-        .await?;
-        sqlx::query("INSERT INTO events (run_id, kind, attempt) VALUES (?, 'plan.approved', ?)")
-            .bind(run_id.as_str())
-            .bind(to_i64(u64::from(version))?)
-            .execute(&mut *tx)
-            .await?;
-        tx.commit().await?;
-        self.load_plan(run_id, version).await
-    }
-
-    async fn get_plan(&self, run_id: &RunId, version: u32) -> Result<PlanRecord, StoreError> {
-        self.load_plan(run_id, version).await
     }
 }

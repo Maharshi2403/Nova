@@ -114,3 +114,77 @@ async fn sqlx_update(store: &Store) -> String {
         .unwrap_err()
         .to_string()
 }
+
+#[tokio::test]
+async fn restart_fails_orphaned_planning_run() {
+    let (dir, store) = store_with_run().await;
+    drop(store);
+    let store = Store::open(dir.path().join("t.db")).await.unwrap();
+    assert_eq!(store.recover_interrupted_planning().await.unwrap(), 1);
+    assert_eq!(store.get_run(&rid()).await.unwrap().state, RunState::Failed);
+    let (_, detail) = store
+        .latest_run_event(&rid(), "planning.failed")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(detail["reason"], "planning interrupted");
+    assert_eq!(store.recover_interrupted_planning().await.unwrap(), 0);
+}
+
+#[tokio::test]
+async fn plan_and_event_atomic() {
+    let (_dir, store) = store_with_run().await;
+    sqlx::query("CREATE TRIGGER reject_planning_event BEFORE INSERT ON events WHEN NEW.kind = 'planning.completed' BEGIN SELECT RAISE(ABORT, 'injected failure'); END").execute(store.pool()).await.unwrap();
+    let detail = serde_json::json!({"subtasks": 2});
+    assert!(
+        store
+            .propose_planned_goal(&rid(), &plan(), &detail)
+            .await
+            .is_err()
+    );
+    assert!(store.list_tasks(&rid()).await.unwrap().is_empty());
+    assert_eq!(
+        store.get_run(&rid()).await.unwrap().state,
+        RunState::Planning
+    );
+    assert!(store.get_plan(&rid(), 1).await.is_err());
+    sqlx::query("DROP TRIGGER reject_planning_event")
+        .execute(store.pool())
+        .await
+        .unwrap();
+    store
+        .propose_planned_goal(&rid(), &plan(), &detail)
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .latest_run_event(&rid(), "planning.completed")
+            .await
+            .unwrap()
+            .unwrap()
+            .1,
+        detail
+    );
+}
+
+#[tokio::test]
+async fn concurrent_propose_on_cancelled_run_rejected() {
+    let (_dir, store) = store_with_run().await;
+    let id = rid();
+    let plan = plan();
+    let detail = serde_json::json!({});
+    let (cancel, propose) = tokio::join!(
+        store.transition_run(&id, 0, RunState::Cancelled, None),
+        store.propose_planned_goal(&id, &plan, &detail)
+    );
+    if cancel.is_ok() {
+        assert!(propose.is_err());
+        assert!(store.list_tasks(&rid()).await.unwrap().is_empty());
+    } else {
+        assert!(propose.is_ok());
+        assert_eq!(
+            store.get_run(&rid()).await.unwrap().state,
+            RunState::AwaitingApproval
+        );
+    }
+}

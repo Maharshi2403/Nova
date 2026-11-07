@@ -110,6 +110,10 @@ pub async fn start(data_dir: impl AsRef<Path>, bind: SocketAddr) -> Result<Daemo
             .map_err(DaemonError::DataDirectory)?;
     }
     let store = Store::open(db_path).await.map_err(DaemonError::Store)?;
+    store
+        .recover_interrupted_planning()
+        .await
+        .map_err(DaemonError::Store)?;
     harness_runtime::recovery::reconcile_interrupted(&store, unix_seconds())
         .await
         .map_err(DaemonError::Store)?;
@@ -843,18 +847,10 @@ async fn submit_goal(
             match harness_runtime::orchestrator::plan_goal(&root, &project, &goal, run_id.as_str())
                 .await
             {
-                Ok(planned) => match store.propose_plan(&run_id, &planned.plan).await {
-                    Ok(_) => Ok(planned),
-                    Err(error) => Err(format!("main agent plan rejected: {error}")),
-                },
-                Err(reason) => Err(reason),
-            };
-        match outcome {
-            Ok(planned) => {
-                let _ = store
-                    .record_run_event(
+                Ok(planned) => match store
+                    .propose_planned_goal(
                         &run_id,
-                        "planning.completed",
+                        &planned.plan,
                         &serde_json::json!({
                             "model": planned.model,
                             "subtasks": planned.plan.tasks.len(),
@@ -863,8 +859,15 @@ async fn submit_goal(
                             "cost_usd": planned.cost_usd,
                         }),
                     )
-                    .await;
-            }
+                    .await
+                {
+                    Ok(_) => Ok(planned),
+                    Err(error) => Err(format!("main agent plan rejected: {error}")),
+                },
+                Err(reason) => Err(reason),
+            };
+        match outcome {
+            Ok(_) => {}
             Err(reason) => {
                 let reason: String = harness_core::redaction::redact(&reason)
                     .chars()

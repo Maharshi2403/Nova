@@ -124,3 +124,8 @@ For glob scopes, Nova compares the literal prefixes before the first wildcard;
 ambiguous overlap serializes conservatively. Disjoint prefixes such as
 `src/a/**` and `docs/**` may execute concurrently. Literal paths retain directory
 boundary checks, and exclusive locks remain project scoped.
+
+On daemon startup, planning runs left by the previous daemon are marked failed
+with `planning interrupted`; resubmit the goal to restart planning. Generated
+plans and their `planning.completed` evidence are persisted atomically, so a
+plan cannot appear approved for review without its planning result metadata.

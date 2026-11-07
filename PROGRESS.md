@@ -850,3 +850,27 @@ Validation on macOS arm64, 2026-11-07:
 - From `intelligence/`: `uv run --locked --offline ruff check .`, `uv run --locked --offline ruff format --check .`, `uv run --locked --offline mypy`, `uv run --locked --offline pytest -q` — PASS, 118 tests, 36 typed source/test files.
 - `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 3` — PASS.
 - `git diff --check` — PASS. No paid calls, push, tags or dependencies added.
+
+## H-083 — Recover interrupted goal planning atomically
+
+Daemon startup reconciles orphaned Planning runs to Failed with durable
+`planning interrupted` evidence, atomically with their state transitions.
+Generated plans and `planning.completed` metadata are committed together. The
+Planning state check now occurs inside the proposal transaction. Manual plans
+retain their existing API and evidence. No migration or schema changes.
+
+Added `restart_fails_orphaned_planning_run`, `plan_and_event_atomic`, and
+`concurrent_propose_on_cancelled_run_rejected`. The initial test run failed to
+compile because recovery and atomic proposal APIs did not exist. All six plan
+store tests pass. The atomicity test injects a SQLite trigger failure while
+writing planning.completed and verifies rollback of plan, tasks and run state.
+The race test accepts only a successful proposal or a successful cancellation,
+never a stored plan on a cancelled run. Operations docs updated.
+
+Validation on macOS arm64, 2026-11-07:
+- `cargo fmt --all --check` — PASS.
+- `cargo clippy --locked --offline --workspace --all-targets -- -D warnings` — PASS (removed an unused import caught by the first clippy run).
+- `cargo test --locked --offline --workspace` — PASS, 274 tests.
+- Python full gate on main (unchanged Python for this ticket): ruff lint/format, mypy and pytest — PASS, 118 tests.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 3` — PASS.
+- `git diff --check` — PASS. No paid calls, push, tags or dependencies added.
