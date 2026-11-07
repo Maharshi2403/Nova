@@ -47,6 +47,7 @@ pub enum Decision {
 pub struct CommandPolicy {
     allowed_prefixes: Vec<Vec<String>>,
     approved: Vec<Vec<String>>,
+    acceptance: Vec<Vec<String>>,
 }
 
 impl CommandPolicy {
@@ -54,7 +55,19 @@ impl CommandPolicy {
         Self {
             allowed_prefixes,
             approved: Vec::new(),
+            acceptance: Vec::new(),
         }
+    }
+
+    /// Only call for acceptance checks from a human-approved task plan.
+    pub fn from_approved_acceptance(checks: &[harness_core::domain::Acceptance]) -> Self {
+        let mut policy = Self::default();
+        for check in checks {
+            if let harness_core::domain::Acceptance::Test { command } = check {
+                policy.acceptance.push(command.clone());
+            }
+        }
+        policy
     }
 
     pub fn approve(&mut self, argv: Vec<String>) {
@@ -62,12 +75,17 @@ impl CommandPolicy {
     }
 
     pub fn decide(&self, argv: &[String]) -> Decision {
+        self.decide_at(argv, true)
+    }
+
+    fn decide_at(&self, argv: &[String], at_worktree_root: bool) -> Decision {
         let allowlisted = self
             .allowed_prefixes
             .iter()
             .any(|p| !p.is_empty() && argv.starts_with(p));
         if (allowlisted && harness_core::approval::classify(argv).is_none())
             || self.approved.iter().any(|a| a == argv)
+            || (at_worktree_root && self.acceptance.iter().any(|a| a == argv))
         {
             Decision::Allowed
         } else {
@@ -199,6 +217,8 @@ pub struct RepoCommandBroker {
     policy: PathPolicy,
     commands: CommandPolicy,
     allow_cmd: bool,
+    default_timeout: Duration,
+    timeout_limit: Duration,
     pending: Vec<Vec<String>>,
     approval_store: Option<(
         harness_store::Store,
@@ -220,10 +240,19 @@ impl RepoCommandBroker {
             policy: PathPolicy::new(worktree)?,
             commands,
             allow_cmd: allowed_tools.iter().any(|t| t == "cmd.run"),
+            default_timeout: DEFAULT_COMMAND_TIMEOUT,
+            timeout_limit: MAX_COMMAND_TIMEOUT,
             pending: Vec::new(),
             approval_store: None,
         })
     }
+    pub fn with_task_timeout(mut self, timeout: Duration) -> Self {
+        let timeout = timeout.clamp(Duration::from_secs(1), Duration::from_secs(86_400));
+        self.default_timeout = timeout;
+        self.timeout_limit = timeout;
+        self
+    }
+
     pub fn with_approval_store(
         mut self,
         store: harness_store::Store,
@@ -271,7 +300,11 @@ impl RepoCommandBroker {
             Ok(_) => return fail("bad_arguments", "cwd is not a directory"),
             Err(e) => return fail("error", e),
         };
-        if self.commands.decide(&args.argv) != Decision::Allowed {
+        if self
+            .commands
+            .decide_at(&args.argv, cwd == self.policy.root())
+            != Decision::Allowed
+        {
             if let Some((store, run, task, attempt)) = &self.approval_store {
                 let action = harness_core::approval::Action {
                     operation: harness_core::approval::classify(&args.argv)
@@ -312,8 +345,8 @@ impl RepoCommandBroker {
         }
         let timeout = args
             .timeout_seconds
-            .map_or(DEFAULT_COMMAND_TIMEOUT, Duration::from_secs)
-            .clamp(Duration::from_secs(1), MAX_COMMAND_TIMEOUT);
+            .map_or(self.default_timeout, Duration::from_secs)
+            .clamp(Duration::from_secs(1), self.timeout_limit);
         match run_command(&cwd, &args.argv, timeout, MAX_COMMAND_OUTPUT_BYTES).await {
             Ok(o) => ToolResponse {
                 ok: true,

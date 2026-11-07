@@ -41,10 +41,18 @@ fn done() -> Reply {
 
 /// Serves replies in order (one per request) and counts requests.
 async fn fake_provider(script: Vec<Reply>) -> (u16, Arc<Mutex<usize>>) {
+    let (port, count, _) = fake_provider_captured(script).await;
+    (port, count)
+}
+
+type Requests = Arc<Mutex<Vec<Value>>>;
+async fn fake_provider_captured(script: Vec<Reply>) -> (u16, Arc<Mutex<usize>>, Requests) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let count = Arc::new(Mutex::new(0usize));
     let seen = count.clone();
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let captured = requests.clone();
     tokio::spawn(async move {
         loop {
             let (mut socket, _) = listener.accept().await.unwrap();
@@ -71,6 +79,17 @@ async fn fake_provider(script: Vec<Reply>) -> (u16, Arc<Mutex<usize>>) {
                     }
                 }
             }
+            let split = buf
+                .windows(4)
+                .position(|bytes| bytes == b"\r\n\r\n")
+                .unwrap();
+            let request: Value = serde_json::from_slice(&buf[split + 4..]).unwrap();
+            {
+                let mut requests = captured.lock().unwrap();
+                if requests.len() < 48 {
+                    requests.push(request);
+                }
+            }
             let index = {
                 let mut n = seen.lock().unwrap();
                 *n += 1;
@@ -88,7 +107,7 @@ async fn fake_provider(script: Vec<Reply>) -> (u16, Arc<Mutex<usize>>) {
             socket.shutdown().await.ok();
         }
     });
-    (port, count)
+    (port, count, requests)
 }
 
 struct Fixture {
@@ -486,4 +505,43 @@ fn store_tasks_models(
             live.select(&task).unwrap().id
         })
         .collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn engine_seeds_exact_acceptance_commands_for_live_coder() {
+    let check = "from pathlib import Path; assert Path('out.txt').read_text() == 'ready\\n'; print('checked')";
+    let command = vec![
+        python().to_str().unwrap().to_owned(),
+        "-c".to_owned(),
+        check.to_owned(),
+    ];
+    let (port, _, captured) = fake_provider_captured(vec![
+        patch("out.txt", "ready\n"),
+        action(json!({"action":"tool", "tool":"cmd.run", "arguments_json":json!({"argv":command}).to_string(), "summary":"run approved check"})),
+        done(),
+    ]).await;
+    let fixture = launch(port, "H089_ENGINE_FIXTURE_KEY", &["out.txt"], &[check]).await;
+    settle(&fixture).await.unwrap();
+    assert!(
+        fixture
+            .store
+            .list_approvals(&fixture.run)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let requests = captured.lock().unwrap();
+    let prompt: Value =
+        serde_json::from_str(requests[2]["messages"][1]["content"].as_str().unwrap()).unwrap();
+    let memory: Value = serde_json::from_str(prompt["previous_summary"].as_str().unwrap()).unwrap();
+    let record = memory["recent"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|record| record["tool"] == "cmd.run")
+        .unwrap();
+    let response: Value = serde_json::from_str(record["result_excerpt"].as_str().unwrap()).unwrap();
+    assert_eq!(response["ok"], true);
+    assert_eq!(response["result"]["exit_code"], 0);
+    assert_eq!(response["result"]["stdout"], "checked\n");
 }

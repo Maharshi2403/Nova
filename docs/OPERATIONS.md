@@ -141,3 +141,12 @@ The diff gate scans changed files for recognizable credential formats and
 high-entropy quoted assignments to secret-like names. Type annotations,
 environment lookups and placeholders are accepted. Secret findings contain only
 the file path and line number; credential values are never included.
+
+Coders can run each human-approved acceptance command via `cmd.run` using its
+exact argv at the worktree root. Extra arguments and alternate working
+directories require a separate approval. Command output remains capped at
+64 KiB and worker-requested timeouts cannot exceed the task's timeout. The
+coder is instructed to run checks before completion and fix/rerun failures.
+`claimed_tests` contains lossless JSON argv strings for observed successful
+checks; these are claims only. Rust reruns acceptance independently before
+commit and integration.

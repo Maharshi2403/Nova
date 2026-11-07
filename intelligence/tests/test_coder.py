@@ -11,6 +11,8 @@ from harness_ai.providers.mock import MockModelProvider
 def exercise(
     *,
     denied: bool = False,
+    run_acceptance: bool = False,
+    test_exit_code: int = 0,
     reads: int = 1,
     max_tool_calls: int = 10,
     max_model_turns: int | None = None,
@@ -24,6 +26,9 @@ def exercise(
         "input_usd_per_million_tokens": 1,
         "output_usd_per_million_tokens": 2,
     }
+    check = ["python", "-m", "pytest"]
+    if run_acceptance:
+        task["acceptance"] = [{"kind": "test", "command": check}]
     calls: list[str] = []
     events: list[tuple[str, dict[str, Any]]] = []
 
@@ -31,6 +36,9 @@ def exercise(
         calls.append(name)
         if name == "task.describe":
             return ToolResponse(ok=True, result=task)
+        if name == "cmd.run":
+            assert args["argv"] == check
+            return ToolResponse(ok=True, result={"exit_code": test_exit_code, "timed_out": False})
         return ToolResponse(ok=not denied, result={"content": "bounded repo text"})
 
     provider = MockModelProvider(
@@ -38,8 +46,10 @@ def exercise(
             *[
                 {
                     "action": "tool",
-                    "tool": "repo.read",
-                    "arguments_json": '{"path":"README.md"}',
+                    "tool": "cmd.run" if run_acceptance else "repo.read",
+                    "arguments_json": json.dumps({"argv": check})
+                    if run_acceptance
+                    else '{"path":"README.md"}',
                     "summary": f"inspect {index}",
                 }
                 for index in range(reads)
@@ -52,7 +62,7 @@ def exercise(
         worktree_id="wt",
         model=ModelRef(provider="openai", model_id="configured"),
         context_manifest_hash="h",
-        allowed_tools=["task.describe", "model.authorize", "repo.read"],
+        allowed_tools=["task.describe", "model.authorize", "repo.read", "cmd.run"],
         max_tool_calls=max_tool_calls,
         max_model_turns=max_model_turns,
         max_output_tokens=2000,
@@ -113,3 +123,15 @@ def test_action_notes_enforce_utf8_byte_cap() -> None:
     assert len(Action.model_validate({**data, "notes": "🔒" * 512}).notes.encode()) == 2048
     with pytest.raises(ValidationError):
         Action.model_validate({**data, "notes": "🔒" * 513})
+
+
+def test_coder_runs_tests_before_completing() -> None:
+    calls, events, provider = exercise(run_acceptance=True)
+    assert calls == ["task.describe", "model.authorize", "cmd.run", "model.authorize"]
+    assert json.loads(events[-1][1]["claimed_tests"][0]) == ["python", "-m", "pytest"]
+    assert "Before completed" in provider.calls[0]["messages"][1]["content"]
+
+
+def test_failed_checks_are_not_claimed_as_passed() -> None:
+    _, events, _ = exercise(run_acceptance=True, test_exit_code=1)
+    assert events[-1][1]["claimed_tests"] == []

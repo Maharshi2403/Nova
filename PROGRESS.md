@@ -1091,3 +1091,38 @@ Final validation on macOS arm64, 2026-11-07:
 - Full Python gate (ruff lint/format, mypy and pytest) — PASS, 137 tests, 39 typed files.
 - Build plus isolated-binary offline demo, 3 tasks — PASS.
 - `git diff --check` — PASS. No paid calls, push, tags or dependencies added.
+
+## H-089 — Let coders run approved acceptance checks
+
+Per-task broker policy now seeds exact human-approved acceptance argv without
+prefix grants. These grants apply only at the canonical worktree root; extra
+args or another cwd still require approval. Task timeout sets the broker's
+default and maximum command timeout (validated task ceiling 24 hours), while
+output caps stay unchanged. The coder prompt requires acceptance checks before
+completion and fix/rerun on failure; claimed_tests records only observed exit-0,
+non-timeout exact checks at the root, as lossless JSON argv strings. A later
+failed rerun removes a previous passing claim. Rust still verifies independently.
+Project gate commands will be added with H-097; no project gate profile exists
+yet. Operations docs updated. No dependencies or protocol/schema changes.
+
+Baseline was the passing H-088 gate (285 Rust, 137 Python). Initial Rust tests
+failed to compile as expected (missing acceptance constructor and task timeout
+method), log /private/tmp/nova-h089-red.log. Initial Python test failed on empty
+claimed_tests (1 failed, 7 passed). New tests:
+- approved_acceptance_argv_runs_without_prompt
+- modified_argv_still_requires_approval (also tests alternate cwd)
+- command_cannot_raise_task_timeout
+- coder_runs_tests_before_completing and failed-check claim exclusion
+- engine_seeds_exact_acceptance_commands_for_live_coder: disposable repo and
+  scripted loopback provider, captures subsequent model context to verify actual
+  stdout/exit code from the Rust command broker and no pending approvals.
+Focused results: 10 broker command tests, 1 new engine e2e test, 8 coder tests
+PASS. Full Python gate passes: ruff lint/format, mypy and pytest — 139 tests.
+
+Final validation on macOS arm64, 2026-11-07:
+- `CARGO_TARGET_DIR=/private/tmp/nova-h089-target cargo fmt --all --check` — PASS.
+- `CARGO_TARGET_DIR=/private/tmp/nova-h089-target cargo clippy --locked --offline --workspace --all-targets -- -D warnings` — PASS.
+- `CARGO_TARGET_DIR=/private/tmp/nova-h089-target cargo test --locked --offline --workspace` — PASS, 289 tests.
+- Python gate: ruff lint/format, mypy, pytest — PASS, 139 tests, 39 typed files.
+- Build and isolated offline demos: tasks 3 and 100, fault and cancel — all PASS.
+- `git diff --check` — PASS. No paid calls, push, tags or dependencies added.

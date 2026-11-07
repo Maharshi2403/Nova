@@ -73,7 +73,16 @@ async def code_task(assignment: StartTask, provider: ModelProvider, tool: Tool, 
             "repo.search": "query, optional path",
             "cmd.run": "argv array, optional cwd; human approval may be required",
         }
+        approved_commands = [
+            check.command
+            for check in task.acceptance
+            if check.kind == "test" and check.command is not None
+        ]
+        passed_checks: list[list[str]] = []
         required["action_contract"] = (
+            "Before completed, run each acceptance command via cmd.run; "
+            "if it fails, fix and rerun. "
+            "Rust independently re-verifies every acceptance command. "
             "Choose a tool action with tool name and JSON-encoded arguments, or completed/failed. "
             "Inspect relevant files before editing. Preserve exact acceptance and assigned scope. "
             "Never request extra privilege. If approval is pending, return failed with its ID."
@@ -152,7 +161,11 @@ async def code_task(assignment: StartTask, provider: ModelProvider, tool: Tool, 
                     emit(
                         "completed",
                         Completed(
-                            summary=action.summary, changed_paths=changed, claimed_tests=[]
+                            summary=action.summary,
+                            changed_paths=changed,
+                            claimed_tests=[
+                                json.dumps(command, ensure_ascii=False) for command in passed_checks
+                            ],
                         ).model_dump(),
                     )
                     return
@@ -169,6 +182,19 @@ async def code_task(assignment: StartTask, provider: ModelProvider, tool: Tool, 
                 if not isinstance(arguments, dict):
                     raise PermanentProviderError("tool arguments must be an object")
                 response = await call_tool(tool, str(action.tool), arguments)
+                if action.tool == "cmd.run":
+                    argv = arguments.get("argv")
+                    if isinstance(argv, list) and argv in approved_commands:
+                        if argv in passed_checks:
+                            passed_checks.remove(argv)
+                        if (
+                            response.ok
+                            and isinstance(response.result, dict)
+                            and response.result.get("exit_code") == 0
+                            and not response.result.get("timed_out", False)
+                            and arguments.get("cwd") in (None, ".", "./")
+                        ):
+                            passed_checks.append(list(argv))
                 if response.ok and action.tool == "repo.patch":
                     path = str(arguments.get("path", ""))
                     if path not in changed:

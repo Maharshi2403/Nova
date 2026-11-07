@@ -471,14 +471,22 @@ impl Execution {
         ];
         let inner = RepoWriteBroker::new(&worktree.path, &tools, &task.spec.candidate_paths)
             .map_err(|e| e.to_string())?;
-        let inner = RepoCommandBroker::new(inner, &worktree.path, &tools, CommandPolicy::default())
-            .map_err(|e| e.to_string())?
-            .with_approval_store(
-                self.store.clone(),
-                task.run_id.clone(),
-                task.id().clone(),
-                task.attempt,
-            );
+        let inner = RepoCommandBroker::new(
+            inner,
+            &worktree.path,
+            &tools,
+            CommandPolicy::from_approved_acceptance(&task.spec.acceptance),
+        )
+        .map_err(|e| e.to_string())?
+        .with_task_timeout(Duration::from_secs(u64::from(
+            task.spec.limits.timeout_seconds,
+        )))
+        .with_approval_store(
+            self.store.clone(),
+            task.run_id.clone(),
+            task.id().clone(),
+            task.attempt,
+        );
         let live = self
             .live
             .as_ref()

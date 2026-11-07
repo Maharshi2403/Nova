@@ -196,3 +196,64 @@ async fn bad_requests_and_tool_gating() {
     let r = cmd(&mut no_cmd, json!({"argv": ["x"]})).await;
     assert!(r.error.as_deref().unwrap().starts_with("tool_not_allowed"));
 }
+
+fn acceptance_broker(dir: &TempDir, command: Vec<String>) -> RepoCommandBroker {
+    let tools = vec!["cmd.run".to_string()];
+    let write = RepoWriteBroker::new(dir.path(), &tools, &["src".into()]).unwrap();
+    let checks = [harness_core::domain::Acceptance::Test { command }];
+    RepoCommandBroker::new(
+        write,
+        dir.path(),
+        &tools,
+        CommandPolicy::from_approved_acceptance(&checks),
+    )
+    .unwrap()
+}
+
+#[tokio::test]
+async fn approved_acceptance_argv_runs_without_prompt() {
+    let dir = TempDir::new().unwrap();
+    let command = argv("print('checked')", &[]);
+    let mut broker = acceptance_broker(&dir, command.clone());
+    let response = cmd(&mut broker, json!({"argv": command})).await;
+    assert!(response.ok, "{response:?}");
+    assert_eq!(response.result.unwrap()["exit_code"], 0);
+    assert!(broker.pending_approvals().is_empty());
+}
+
+#[tokio::test]
+async fn modified_argv_still_requires_approval() {
+    let dir = TempDir::new().unwrap();
+    let command = argv("print('checked')", &[]);
+    let mut broker = acceptance_broker(&dir, command.clone());
+    let mut modified = command.clone();
+    modified.push("extra".into());
+    assert!(
+        cmd(&mut broker, json!({"argv": modified}))
+            .await
+            .error
+            .unwrap()
+            .contains("approval_required")
+    );
+    std::fs::create_dir(dir.path().join("subdir")).unwrap();
+    assert!(
+        cmd(&mut broker, json!({"argv": command, "cwd":"subdir"}))
+            .await
+            .error
+            .unwrap()
+            .contains("approval_required")
+    );
+}
+
+#[tokio::test]
+async fn command_cannot_raise_task_timeout() {
+    let dir = TempDir::new().unwrap();
+    let command = argv("import time; time.sleep(10)", &[]);
+    let mut broker =
+        acceptance_broker(&dir, command.clone()).with_task_timeout(Duration::from_secs(1));
+    let now = Instant::now();
+    let response = cmd(&mut broker, json!({"argv": command, "timeout_seconds":100})).await;
+    assert!(response.ok);
+    assert_eq!(response.result.unwrap()["timed_out"], true);
+    assert!(now.elapsed() < Duration::from_secs(5));
+}
