@@ -182,8 +182,9 @@ async fn conflict_blocks_completion() {
 }
 
 #[tokio::test]
-async fn integration_failure_retains_branch() {
+async fn failed_final_check_restores_integration_tip() {
     let fixture = fixture().await;
+    let pre = git(&fixture.repo, &["rev-parse", "main"]).await.unwrap();
     let integrator = Integrator::new(
         &fixture.repo,
         &fixture.integration_base,
@@ -198,6 +199,12 @@ async fn integration_failure_retains_branch() {
         .await
         .unwrap_err();
     assert!(matches!(err, IntegrationError::FinalCheckFailed(_)));
+    assert_eq!(
+        git(&fixture.repo, &["rev-parse", integrator.branch()])
+            .await
+            .unwrap(),
+        pre
+    );
     assert!(
         git(
             &fixture.repo,
@@ -205,11 +212,11 @@ async fn integration_failure_retains_branch() {
                 "merge-base",
                 "--is-ancestor",
                 &fixture.task_sha,
-                integrator.branch(),
-            ],
+                integrator.branch()
+            ]
         )
         .await
-        .is_ok()
+        .is_err()
     );
     assert_eq!(
         fixture
@@ -219,6 +226,103 @@ async fn integration_failure_retains_branch() {
             .unwrap()
             .state,
         TaskState::Reviewing
+    );
+}
+
+#[tokio::test]
+async fn quarantine_ref_retains_failed_merge() {
+    let f = fixture().await;
+    let integrator = Integrator::new(
+        &f.repo,
+        &f.integration_base,
+        "run-1",
+        "main",
+        vec![vec!["git".into(), "not-a-command".into()]],
+    )
+    .unwrap();
+    assert!(matches!(
+        integrator.integrate(&f.store, &f.task).await,
+        Err(IntegrationError::FinalCheckFailed(_))
+    ));
+    let reference = "refs/harness/quarantine/run-1/task-1";
+    let sha = git(&f.repo, &["rev-parse", reference]).await.unwrap();
+    assert!(
+        git(
+            &f.repo,
+            &["merge-base", "--is-ancestor", &f.task_sha, reference]
+        )
+        .await
+        .is_ok()
+    );
+    let evidence = f
+        .store
+        .latest_task_quarantine(&f.task.run_id, f.task.id())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(evidence["ref"], reference);
+    assert_eq!(evidence["sha"], sha.trim());
+}
+
+#[tokio::test]
+async fn next_task_does_not_inherit_failed_merge() {
+    let f = fixture().await;
+    let failing = Integrator::new(
+        &f.repo,
+        &f.integration_base,
+        "run-1",
+        "main",
+        vec![vec!["git".into(), "not-a-command".into()]],
+    )
+    .unwrap();
+    assert!(matches!(
+        failing.integrate(&f.store, &f.task).await,
+        Err(IntegrationError::FinalCheckFailed(_))
+    ));
+    git(&f.repo, &["checkout", "-q", "-b", "next-task", "main"])
+        .await
+        .unwrap();
+    std::fs::write(f.repo.join("next.txt"), "next change\n").unwrap();
+    git(&f.repo, &["add", "next.txt"]).await.unwrap();
+    git(&f.repo, &["commit", "-m", "next task"]).await.unwrap();
+    let next_sha = git(&f.repo, &["rev-parse", "HEAD"]).await.unwrap();
+    git(&f.repo, &["checkout", "-q", "main"]).await.unwrap();
+    let mut next = f.task.clone();
+    next.spec.id = TaskId::new("task-2").unwrap();
+    next.spec.candidate_paths = vec!["next.txt".into()];
+    f.store.insert_task(&next).await.unwrap();
+    f.store
+        .record_task_commit(&TaskCommitRecord {
+            run_id: next.run_id.clone(),
+            task_id: next.id().clone(),
+            task_commit_sha: next_sha.trim().into(),
+            integration_commit_sha: None,
+            diff_paths: vec!["next.txt".into()],
+        })
+        .await
+        .unwrap();
+    let passing = failing.with_checks(vec![vec!["git".into(), "--version".into()]]);
+    passing.integrate(&f.store, &next).await.unwrap();
+    assert!(
+        git(
+            &f.repo,
+            &[
+                "merge-base",
+                "--is-ancestor",
+                next_sha.trim(),
+                passing.branch()
+            ]
+        )
+        .await
+        .is_ok()
+    );
+    assert!(
+        git(
+            &f.repo,
+            &["merge-base", "--is-ancestor", &f.task_sha, passing.branch()]
+        )
+        .await
+        .is_err()
     );
 }
 

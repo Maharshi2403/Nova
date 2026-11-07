@@ -48,7 +48,8 @@ Any future client must preserve Rust state authority and this trust boundary.
 Native dashboard additions: GET `/v1/dashboard?offset=0&limit=100` returns
 newest-first projects/runs with total counts (limit 1..200); projects include their
 persisted trusted-local decision. GET `/v1/tasks/{run}/{task}/evidence` returns
-recorded verifier command/exit/duration and task/integration commit identities.
+recorded verifier command/exit/duration, task/integration commit identities,
+and the quarantine ref/SHA when an integration check failed.
 Both require bearer authentication and reject browser-origin requests.
 
 Dashboard runs include their latest immutable `plan_version` when available.

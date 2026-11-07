@@ -719,3 +719,28 @@ Verified on macOS (Apple Silicon), 2026-11-06:
 - `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 1 --cancel` — PASS.
 
 No paid provider calls, push, or tags were used.
+
+## H-080 — Quarantine failed integration merges
+
+When an integration final check fails (non-zero exit, timeout, failure to start,
+or artifact cleanup failure), the merge SHA is pinned at
+`refs/harness/quarantine/<run>/<task>` and an `integration.quarantined` event
+records the ref, SHA, and redacted reason. The harness-owned integration
+worktree is then reset to its pre-merge SHA, so later tasks never branch from
+the broken tip. User branches are never touched. Task evidence
+(`GET /v1/tasks/{run}/{task}/evidence`) now includes the quarantine record.
+The former `integration_failure_retains_branch` assertion was inverted: the
+integration branch no longer contains the failed merge.
+
+Verified on macOS (Apple Silicon), 2026-11-06:
+
+- `cargo test --offline -p harness-runtime --test integration` — 6 passed, including `failed_final_check_restores_integration_tip`, `next_task_does_not_inherit_failed_merge`, `quarantine_ref_retains_failed_merge`.
+- `cargo fmt --all --check` — PASS.
+- `cargo clippy --locked --offline --workspace --all-targets -- -D warnings` — PASS.
+- `cargo test --locked --offline --workspace` — PASS.
+- `uv run --offline --locked pytest` from `intelligence/` — 115 passed.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 3` — PASS.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 1 --fault` — PASS.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 1 --cancel` — PASS.
+
+No paid provider calls or tags were used.

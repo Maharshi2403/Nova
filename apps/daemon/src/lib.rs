@@ -345,10 +345,15 @@ async fn task_evidence(
         .latest_task_failure(&run, &task)
         .await
         .map_err(store_error)?;
+    let quarantine = state
+        .store
+        .latest_task_quarantine(&run, &task)
+        .await
+        .map_err(store_error)?;
     Ok((
         StatusCode::OK,
         Json(
-            serde_json::json!({"commit":commit.map(|c|serde_json::json!({"task_commit_sha":c.task_commit_sha,"integration_commit_sha":c.integration_commit_sha,"diff_paths":c.diff_paths})),"tests":tests.into_iter().map(|t|serde_json::json!({"id":t.id,"command":t.command,"exit_code":t.exit_code,"duration_ms":t.duration_ms})).collect::<Vec<_>>(),"failure":failure}),
+            serde_json::json!({"commit":commit.map(|c|serde_json::json!({"task_commit_sha":c.task_commit_sha,"integration_commit_sha":c.integration_commit_sha,"diff_paths":c.diff_paths})),"tests":tests.into_iter().map(|t|serde_json::json!({"id":t.id,"command":t.command,"exit_code":t.exit_code,"duration_ms":t.duration_ms})).collect::<Vec<_>>(),"failure":failure,"quarantine":quarantine}),
         ),
     ))
 }

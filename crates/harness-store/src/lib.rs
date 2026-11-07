@@ -130,6 +130,37 @@ impl Store {
             .and_then(|p| serde_json::from_str::<serde_json::Value>(&p).ok())
             .and_then(|v| v["reason"].as_str().map(str::to_owned)))
     }
+    /// Durable evidence for a merge that failed its integration check.
+    pub async fn record_task_quarantine(
+        &self,
+        run: &harness_core::domain::RunId,
+        task: &harness_core::domain::TaskId,
+        reference: &str,
+        sha: &str,
+        reason: &str,
+    ) -> Result<(), StoreError> {
+        let reason = harness_core::redaction::redact(reason);
+        let reason: String = reason.chars().take(256).collect();
+        sqlx::query("INSERT INTO events (run_id, task_id, kind, payload_json) VALUES (?, ?, 'integration.quarantined', ?)")
+            .bind(run.as_str())
+            .bind(task.as_str())
+            .bind(serde_json::json!({"ref": reference, "sha": sha, "reason": reason}).to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn latest_task_quarantine(
+        &self,
+        run: &harness_core::domain::RunId,
+        task: &harness_core::domain::TaskId,
+    ) -> Result<Option<serde_json::Value>, StoreError> {
+        let payload: Option<String> = sqlx::query_scalar("SELECT payload_json FROM events WHERE run_id = ? AND task_id = ? AND kind = 'integration.quarantined' ORDER BY sequence DESC LIMIT 1")
+            .bind(run.as_str()).bind(task.as_str()).fetch_optional(&self.pool).await?;
+        payload
+            .map(|value| serde_json::from_str(&value).map_err(StoreError::from))
+            .transpose()
+    }
     /// Open (creating if needed) a database file and apply all migrations.
     ///
     /// Always WAL, foreign keys enforced, 5s busy timeout. Do not place the file

@@ -21,7 +21,7 @@ pub enum IntegrationError {
     MissingTaskCommit,
     #[error("integration merge conflicted; task branch is retained: {0}")]
     Conflict(String),
-    #[error("integration check failed; integration branch is retained: {0}")]
+    #[error("integration check failed; merge is quarantined: {0}")]
     FinalCheckFailed(String),
     #[error("task is not ready to be integrated: {0:?}")]
     InvalidTaskState(TaskState),
@@ -149,6 +149,13 @@ impl Integrator {
             return self.complete_task(store, task, sha, true).await;
         }
         self.ensure_worktree().await?;
+        let pre_merge_sha = git(
+            &self.worktree_path,
+            &["rev-parse", "--verify", "HEAD^{commit}"],
+        )
+        .await?
+        .trim()
+        .to_owned();
         if !self.contains_commit(&record.task_commit_sha).await? {
             let output = run_command(
                 &self.worktree_path,
@@ -186,16 +193,49 @@ impl Integrator {
             )
             .await;
             // The worktree is clean after the merge, so anything untracked came from checks.
-            crate::diff_gate::remove_check_artifacts(&self.worktree_path, &[]).await?;
-            let output = output?;
-            if output.timed_out || output.exit_code != Some(0) {
-                let detail = if output.timed_out {
-                    "timed out".to_owned()
-                } else {
+            let cleanup = crate::diff_gate::remove_check_artifacts(&self.worktree_path, &[]).await;
+            let detail = match output {
+                Ok(output) if output.timed_out => Some("timed out".to_owned()),
+                Ok(output) if output.exit_code != Some(0) => Some(
                     format!("{}{}", output.stdout, output.stderr)
                         .trim()
-                        .to_owned()
-                };
+                        .to_owned(),
+                ),
+                Err(e) => Some(format!("check failed to start: {e}")),
+                Ok(_) => cleanup
+                    .as_ref()
+                    .err()
+                    .map(|e| format!("check cleanup failed: {e}")),
+            };
+            if let Some(detail) = detail {
+                let merge_sha = git(
+                    &self.worktree_path,
+                    &["rev-parse", "--verify", "HEAD^{commit}"],
+                )
+                .await?
+                .trim()
+                .to_owned();
+                let quarantine_ref = format!(
+                    "refs/harness/quarantine/{}/{}",
+                    ref_component(task.run_id.as_str()),
+                    ref_component(task.id().as_str())
+                );
+                git(
+                    &self.worktree_path,
+                    &["update-ref", &quarantine_ref, &merge_sha],
+                )
+                .await?;
+                let evidence = store
+                    .record_task_quarantine(
+                        &task.run_id,
+                        task.id(),
+                        &quarantine_ref,
+                        &merge_sha,
+                        &detail,
+                    )
+                    .await;
+                git(&self.worktree_path, &["reset", "--hard", &pre_merge_sha]).await?;
+                evidence?;
                 return Err(IntegrationError::FinalCheckFailed(detail));
             }
         }
@@ -338,5 +378,20 @@ impl Integrator {
             integration_sha: sha,
             replayed,
         })
+    }
+}
+
+fn ref_component(value: &str) -> String {
+    if value
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        value.to_owned()
+    } else {
+        let mut encoded = String::from("id-");
+        for byte in value.bytes() {
+            encoded.push_str(&format!("{byte:02x}"));
+        }
+        encoded
     }
 }
