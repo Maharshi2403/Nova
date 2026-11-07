@@ -123,3 +123,18 @@ def test_use_case_survives_compact_handoff() -> None:
     plan["tasks"][0]["use_case"] = "unrecognized"
     with pytest.raises(ValueError):
         PlanProposal.model_validate(plan)
+
+
+def test_stable_prefix_identical_across_turns() -> None:
+    prompts = [
+        build_prompt(
+            "coder",
+            {"acceptance": ["exact check"], "available_tools": ["repo.read"]},
+            previous_summary=f"turn {turn}",
+        )
+        for turn in [1, 2, 3]
+    ]
+    prefixes = [p.data.split(',"snippets":', 1)[0].encode() for p in prompts]
+    assert prefixes[0] == prefixes[2]
+    assert b'"required"' in prefixes[0]
+    assert b'"previous_summary"' not in prefixes[0]

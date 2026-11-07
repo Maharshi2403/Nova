@@ -84,11 +84,24 @@ def build_prompt(
         raise ContextLimitError("invalid context byte cap")
     system = ROLE_PREFIXES[role] + DATA_RULE
     prefix_hash = hashlib.sha256(system.encode("utf-8")).hexdigest()
-    data: dict[str, Any] = {"required": required, "snippets": [], "previous_summary": ""}
+    data: dict[str, Any] = {
+        "contract": {
+            key: required[key]
+            for key in ("available_tools", "tool_arguments", "action_contract")
+            if key in required
+        },
+        "required": required,
+        "snippets": [],
+        "previous_summary": "",
+    }
     truncated = False
 
     def snapshot() -> Prompt:
-        return Prompt(system, _json(data), prefix_hash, truncated)
+        # Preserve section order; sorting the root would place volatile history first.
+        ordered = (
+            "{" + ",".join(_json(key) + ":" + _json(value) for key, value in data.items()) + "}"
+        )
+        return Prompt(system, ordered, prefix_hash, truncated)
 
     if snapshot().byte_size > byte_cap:
         raise ContextLimitError("required context exceeds cap; acceptance was not truncated")

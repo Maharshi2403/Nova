@@ -952,3 +952,37 @@ Validation on macOS arm64, 2026-11-07:
 - From `intelligence/`: ruff lint/format, mypy and `uv run --locked --offline pytest -q` — PASS, 124 tests.
 - `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 3` — PASS.
 - `git diff --check` — PASS. No paid calls, push, tags or dependencies added.
+
+## H-087a — Stable prompt ordering and Anthropic cache boundary
+
+H-087 split before implementation: H-087a owns prompt layout/cache boundaries;
+H-087b owns cross-language cache token accounting and registry pricing, which
+must update Rust contracts/runtime and Python together. H-087 is not complete
+until both parts land.
+
+Prompts serialize root sections in fixed order: tools/contract, required task
+handoff, snippets, then volatile history. Anthropic converts that stable prefix
+into a text block with ephemeral cache_control while preserving the complete
+original prompt bytes across the stable and volatile blocks. Generic provider
+messages remain compatible. Provider docs updated; no dependencies or schema
+changes in this sub-ticket.
+
+Initial focused tests: 2 failed, 34 passed, reproducing volatile history before
+the stable prefix and absence of a cache boundary. After implementation,
+`stable_prefix_identical_across_turns` and
+`anthropic_cache_control_on_stable_block` pass (36 focused tests total).
+Full Python gate passes: `uv run --locked --offline ruff check .`,
+`uv run --locked --offline ruff format --check .`, `uv run --locked --offline mypy`,
+`uv run --locked --offline pytest -q` from intelligence/ — 126 tests, 36 typed files.
+
+Cache control is opt-in and disabled by default in H-087a, so deploying prompt
+ordering cannot introduce cache-write charges before Rust accounts for them.
+H-087b must wire the option only with cache-aware accounting.
+
+macOS arm64, 2026-11-07:
+- `cargo fmt --all --check` — PASS.
+- `cargo clippy --locked --offline --workspace --all-targets -- -D warnings` — PASS.
+- `cargo test --locked --offline --workspace` — PASS, 274 tests (pre-H-084 base).
+- Final Python gate — PASS, 127 tests, including default-disabled cache control.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 3` — PASS.
+- `git diff --check` — PASS. No paid calls, push, tags or dependencies added.

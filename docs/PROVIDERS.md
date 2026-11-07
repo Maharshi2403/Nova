@@ -96,3 +96,12 @@ Anthropic requests pin `anthropic-version` through the adapter's
 https://platform.claude.com/docs/en/api/versioning). Null or absent cache token
 counts contribute zero; absent input/output token counts remain unknown.
 Non-`end_turn` completions fail rather than being treated as complete actions.
+
+Structured task prompts place tools and contract first, then required task data,
+context snippets, and finally volatile history. Anthropic receives the stable
+prefix as a text block with ephemeral cache control; snippets and history stay
+in a separate uncached block. This marks a cache boundary, not evidence of a
+cache hit. Actual cache token accounting comes from provider usage fields.
+
+Explicit cache boundaries remain disabled by default until cache-write pricing
+is enforced by Rust (H-087b); stable prompt ordering applies immediately.

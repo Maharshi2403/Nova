@@ -61,6 +61,32 @@ def anthropic_schema(schema: dict[str, Any]) -> dict[str, Any]:
 ANTHROPIC_API_VERSION = "2026-10-21"
 
 
+def _cacheable_messages(messages: list[Message]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for message in messages:
+        if message["role"] in ("system", "developer"):
+            continue
+        item: dict[str, Any] = dict(message)
+        text = message["content"]
+        try:
+            data = json.loads(text)
+        except (ValueError, TypeError):
+            data = None
+        head, separator, tail = text.partition(',"snippets":')
+        if (
+            isinstance(data, dict)
+            and "required" in data
+            and "previous_summary" in data
+            and separator
+        ):
+            item["content"] = [
+                {"type": "text", "text": head, "cache_control": {"type": "ephemeral"}},
+                {"type": "text", "text": separator + tail},
+            ]
+        result.append(item)
+    return result
+
+
 class JSONProvider:
     def __init__(
         self,
@@ -70,6 +96,7 @@ class JSONProvider:
         api_key: str,
         base_url: str,
         transport: httpx.AsyncBaseTransport | None = None,
+        cache_enabled: bool = False,
     ) -> None:
         if not enabled or not api_key.strip() or kind not in ("openai", "anthropic", "compatible"):
             raise PermanentProviderError("provider disabled, unsupported or missing credentials")
@@ -91,6 +118,8 @@ class JSONProvider:
             else {"Authorization": f"Bearer {api_key}"}
         )
         self.transport = transport
+        # Enable only once the caller can account for cache-write pricing.
+        self.cache_enabled = cache_enabled
 
     async def complete(
         self,
@@ -119,7 +148,9 @@ class JSONProvider:
                 "system": "\n".join(
                     m["content"] for m in messages if m["role"] in ("system", "developer")
                 ),
-                "messages": [m for m in messages if m["role"] not in ("system", "developer")],
+                "messages": _cacheable_messages(messages)
+                if self.cache_enabled
+                else [m for m in messages if m["role"] not in ("system", "developer")],
                 "output_config": {
                     "format": {"type": "json_schema", "schema": anthropic_schema(schema)}
                 },
