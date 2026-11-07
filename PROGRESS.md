@@ -1036,3 +1036,31 @@ Validation on macOS arm64, 2026-11-07, isolated build target:
 - From `intelligence/`, ruff lint/format, mypy, `uv run --locked --offline pytest -q` — PASS, 128 tests.
 - Build plus offline demos using isolated debug binaries: tasks 3 and 100, fault, cancel — all PASS.
 - `git diff --check` — PASS. No paid calls, push or tags.
+
+## H-087c — Authoritative cache-aware costs and safe cache enablement
+
+Rust computes cache-aware usage costs using registry prices and validates that
+cache buckets do not exceed total input. Model grants reserve the highest
+configured input/cache rate, including the write premium. Missing required
+cache prices yield unknown cost, never zero. Python mirrors the estimate for
+its usage report; Rust remains the sole accounting authority. Anthropic adapter
+cache control is enabled only when both cache prices are configured. CLI model
+configuration exposes optional cached-input/cache-write prices. Provider docs
+updated; no dependency or worker envelope schema changes.
+
+Tests added: cached_tokens_priced_at_cached_rate in Rust and Python,
+cache_write_premium_is_reserved_before_call, missing-cache-price and invalid
+cache-total regressions. Python pricing test initially failed collection because
+estimate_cost did not exist. Rust pricing methods likewise did not exist on the
+baseline; the grant test would previously allow a call exceeding its cap at the
+cache-write rate. Focused tests pass: 4 registry, 5 live policy, 7 Python
+pricing/coder tests. Full Python gate: ruff lint/format, mypy and pytest — PASS,
+131 tests. No paid provider calls were used.
+
+Final validation on macOS arm64, 2026-11-07:
+- `CARGO_TARGET_DIR=/private/tmp/nova-h087c-target cargo fmt --all --check` — PASS.
+- `CARGO_TARGET_DIR=/private/tmp/nova-h087c-target cargo clippy --locked --offline --workspace --all-targets -- -D warnings` — PASS.
+- `CARGO_TARGET_DIR=/private/tmp/nova-h087c-target cargo test --locked --offline --workspace` — PASS, 285 tests.
+- Full Python gate (ruff lint/format, mypy, pytest) — PASS, 131 tests.
+- Build and offline demos (isolated target binaries): 3 tasks, 100 tasks, fault and cancel — all PASS.
+- `git diff --check` — PASS. No paid calls, push or tags.

@@ -103,8 +103,9 @@ prefix as a text block with ephemeral cache control; snippets and history stay
 in a separate uncached block. This marks a cache boundary, not evidence of a
 cache hit. Actual cache token accounting comes from provider usage fields.
 
-Explicit cache boundaries remain disabled by default until cache-write pricing
-is enforced by Rust (H-087b); stable prompt ordering applies immediately.
+Anthropic explicit cache boundaries are enabled only when both cached-input
+and cache-write prices are configured. Rust includes the highest input price
+in its grant bound and records cache-aware costs independently of worker claims.
 
 Model registries and saved model metadata accept optional
 `cached_input_usd_per_million_tokens` and `cache_write_usd_per_million_tokens`.
@@ -112,3 +113,9 @@ Omitted values mean unknown, not zero. Supplied prices must be finite and
 non-negative. The provider adapter preserves Anthropic cache-creation token
 counts separately from total input and cached-read counts; older adapter
 results may omit this optional count.
+
+Configure per-million-token cache prices with `nova models configure` using
+`--cached-input-price` and `--cache-write-price`, alongside the existing input
+and output prices. For observed nonzero cache buckets, an absent required price
+leaves the cost unknown. Total input includes normal, cached-read and
+cache-creation tokens; the buckets are priced separately without double counting.

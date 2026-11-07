@@ -17,7 +17,12 @@ from harness_ai.assignment import Completed, Failed, StartTask, Usage
 from harness_ai.broker_stdio import Tool, call_tool
 from harness_ai.context import build_prompt, task_handoff
 from harness_ai.plan import TaskProposal
-from harness_ai.providers.base import ModelProvider, PermanentProviderError, ProviderError
+from harness_ai.providers.base import (
+    ModelProvider,
+    PermanentProviderError,
+    ProviderError,
+    estimate_cost,
+)
 from harness_ai.providers.retry import RetryingProvider
 
 
@@ -111,12 +116,7 @@ async def code_task(assignment: StartTask, provider: ModelProvider, tool: Tool, 
                     timeout_seconds=min(120, assignment.timeout_seconds),
                 )
                 usage = result.usage
-                cost = None
-                if usage.input_tokens is not None and usage.output_tokens is not None:
-                    cost = (
-                        usage.input_tokens * float(runtime["input_usd_per_million_tokens"])
-                        + usage.output_tokens * float(runtime["output_usd_per_million_tokens"])
-                    ) / 1_000_000
+                cost = estimate_cost(usage, runtime)
                 emit(
                     "usage",
                     Usage(

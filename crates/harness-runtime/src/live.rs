@@ -115,7 +115,7 @@ impl LiveBroker {
             .clamp(1024, 32768)
     }
     pub fn runtime_context(&self) -> serde_json::Value {
-        serde_json::json!({"max_output_tokens": self.model.max_output_tokens, "context_byte_cap":self.context_cap(), "input_usd_per_million_tokens":self.model.input_usd_per_million_tokens, "output_usd_per_million_tokens":self.model.output_usd_per_million_tokens})
+        serde_json::json!({"max_output_tokens": self.model.max_output_tokens, "context_byte_cap":self.context_cap(), "input_usd_per_million_tokens":self.model.input_usd_per_million_tokens, "cached_input_usd_per_million_tokens": self.model.cached_input_usd_per_million_tokens, "cache_write_usd_per_million_tokens": self.model.cache_write_usd_per_million_tokens, "output_usd_per_million_tokens":self.model.output_usd_per_million_tokens})
     }
     pub fn authorize(&mut self, request: &ToolRequest) -> ToolResponse {
         #[derive(Deserialize)]
@@ -144,7 +144,7 @@ impl LiveBroker {
         {
             return denied("model grant exceeds policy");
         }
-        let cost = (args.input_byte_bound as f64 * self.model.input_usd_per_million_tokens
+        let cost = (args.input_byte_bound as f64 * self.model.input_reservation_price()
             + f64::from(args.max_output_tokens) * self.model.output_usd_per_million_tokens)
             / 1_000_000.0;
         if !cost.is_finite() || self.authorized_cost + cost > self.task_cap {
@@ -186,6 +186,13 @@ impl LiveBroker {
             .map(Into::into)
             .to_vec();
         spec.env = self.profile.adapter_env(&self.api_key);
+        if self.profile.kind == crate::provider_config::ProviderKind::Anthropic
+            && self.model.cached_input_usd_per_million_tokens.is_some()
+            && self.model.cache_write_usd_per_million_tokens.is_some()
+        {
+            spec.env
+                .push(("NOVA_PROVIDER_CACHE_ENABLED".into(), "1".into()));
+        }
         // Only this adapter subprocess gets credentials; cwd is never a repository.
         let outcome = invoke(
             spec,
@@ -227,19 +234,33 @@ impl LiveBroker {
         let input = result["usage"]["input_tokens"].as_u64();
         let output = result["usage"]["output_tokens"].as_u64();
         let cached = result["usage"]["cached_input_tokens"].as_u64();
+        let created = result["usage"]["cache_creation_input_tokens"].as_u64();
         if result["provider"].as_str() != Some(self.model.provider.as_str())
             || result["model_id"].as_str() != Some(self.model.model_id.as_str())
             || input.is_some_and(|n| n > input_bound as u64)
             || output.is_some_and(|n| n > u64::from(output_cap))
-            || matches!((cached,input), (Some(c),Some(i)) if c>i)
+            || [
+                "input_tokens",
+                "output_tokens",
+                "cached_input_tokens",
+                "cache_creation_input_tokens",
+            ]
+            .iter()
+            .any(|field| {
+                let value = &result["usage"][field];
+                !value.is_null() && value.as_u64().is_none()
+            })
+            || cached
+                .unwrap_or(0)
+                .checked_add(created.unwrap_or(0))
+                .is_none_or(|total| input.is_some_and(|input| total > input))
         {
             return (denied("invalid provider measurements"), Some(unknown));
         }
         self.remaining_output = output.map_or(0, |n| self.remaining_output.saturating_sub(n));
-        let cost = input.zip(output).map(|(i, o)| {
-            (i as f64 * self.model.input_usd_per_million_tokens
-                + o as f64 * self.model.output_usd_per_million_tokens)
-                / 1_000_000.0
+        let cost = input.zip(output).and_then(|(input, output)| {
+            self.model
+                .estimate_cost(input, output, cached.unwrap_or(0), created.unwrap_or(0))
         });
         (
             response,

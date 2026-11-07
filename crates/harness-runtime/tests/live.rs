@@ -104,3 +104,27 @@ fn use_case_routes_across_providers_without_bypassing_policy() {
     config.registry.models[1].structured_output = false;
     assert!(config.select(&task).is_err());
 }
+
+#[test]
+fn cache_write_premium_is_reserved_before_call() {
+    let (mut task, config) = fixture();
+    task.spec.limits.cost_cap_usd = 0.01;
+    let mut model = config.select(&task).unwrap();
+    model.cached_input_usd_per_million_tokens = Some(0.1);
+    model.cache_write_usd_per_million_tokens = Some(10.0);
+    let mut broker = LiveBroker::new(
+        model,
+        &task,
+        "missing-python".into(),
+        "fixture-credential".into(),
+    );
+    assert!(
+        !broker
+            .authorize(&request("user-configured-model", 4000, 1000))
+            .ok
+    );
+    assert_eq!(
+        broker.runtime_context()["cache_write_usd_per_million_tokens"],
+        10.0
+    );
+}

@@ -44,6 +44,10 @@ pub enum ModelCommand {
         #[arg(long)]
         output_price: f64,
         #[arg(long)]
+        cached_input_price: Option<f64>,
+        #[arg(long)]
+        cache_write_price: Option<f64>,
+        #[arg(long)]
         structured_output: bool,
         #[arg(long, default_value = "medium")]
         tier: String,
@@ -226,6 +230,8 @@ pub fn models(root: &Path, command: ModelCommand) -> Result<String, String> {
             max_output,
             input_price,
             output_price,
+            cached_input_price,
+            cache_write_price,
             structured_output,
             tier,
         } => {
@@ -241,8 +247,8 @@ pub fn models(root: &Path, command: ModelCommand) -> Result<String, String> {
                 max_output_tokens: Some(max_output),
                 input_usd_per_million_tokens: Some(input_price),
                 output_usd_per_million_tokens: Some(output_price),
-                cached_input_usd_per_million_tokens: None,
-                cache_write_usd_per_million_tokens: None,
+                cached_input_usd_per_million_tokens: cached_input_price,
+                cache_write_usd_per_million_tokens: cache_write_price,
                 structured_output,
                 tier,
                 metadata_source: "operator configured".into(),

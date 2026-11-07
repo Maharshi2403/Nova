@@ -173,3 +173,36 @@ impl ModelRegistry {
         Ok(model)
     }
 }
+
+impl ModelDefinition {
+    pub fn input_reservation_price(&self) -> f64 {
+        [
+            self.cached_input_usd_per_million_tokens,
+            self.cache_write_usd_per_million_tokens,
+        ]
+        .into_iter()
+        .flatten()
+        .fold(self.input_usd_per_million_tokens, f64::max)
+    }
+
+    /// Cache buckets are included in total input. Missing required prices stay unknown.
+    pub fn estimate_cost(&self, input: u64, output: u64, cached: u64, created: u64) -> Option<f64> {
+        let normal = input.checked_sub(cached.checked_add(created)?)?;
+        let read_cost = if cached == 0 {
+            0.0
+        } else {
+            cached as f64 * self.cached_input_usd_per_million_tokens?
+        };
+        let write_cost = if created == 0 {
+            0.0
+        } else {
+            created as f64 * self.cache_write_usd_per_million_tokens?
+        };
+        let cost = (normal as f64 * self.input_usd_per_million_tokens
+            + read_cost
+            + write_cost
+            + output as f64 * self.output_usd_per_million_tokens)
+            / 1_000_000.0;
+        (cost.is_finite() && cost >= 0.0).then_some(cost)
+    }
+}

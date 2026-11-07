@@ -118,7 +118,11 @@ def serve_provider(stdin: BinaryIO, stdout: BinaryIO) -> int:
                 OpenAIProvider(enabled=enabled, api_key=key)
                 if kind == "openai"
                 else JSONProvider(
-                    kind=cast(Kind, kind), enabled=enabled, api_key=key, base_url=base
+                    kind=cast(Kind, kind),
+                    enabled=enabled,
+                    api_key=key,
+                    base_url=base,
+                    cache_enabled=os.environ.get("NOVA_PROVIDER_CACHE_ENABLED") == "1",
                 )
             )
             result = asyncio.run(provider.complete(**request.payload["arguments"]))

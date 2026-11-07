@@ -54,3 +54,31 @@ class ModelProvider(Protocol):
         max_output_tokens: int,
         timeout_seconds: float,
     ) -> ModelResult: ...
+
+
+def estimate_cost(usage: Usage, prices: dict[str, Any]) -> float | None:
+    """Registry estimate only; Rust independently records authoritative usage."""
+    import math
+
+    if usage.input_tokens is None or usage.output_tokens is None:
+        return None
+    cached = usage.cached_input_tokens or 0
+    created = usage.cache_creation_input_tokens or 0
+    normal = usage.input_tokens - cached - created
+    if normal < 0:
+        return None
+    cost = 0.0
+    for count, key in [
+        (normal, "input_usd_per_million_tokens"),
+        (usage.output_tokens, "output_usd_per_million_tokens"),
+        (cached, "cached_input_usd_per_million_tokens"),
+        (created, "cache_write_usd_per_million_tokens"),
+    ]:
+        if count == 0:
+            continue
+        price = prices.get(key)
+        if not isinstance(price, (int, float)) or not math.isfinite(price) or price < 0:
+            return None
+        cost += count * price
+    cost /= 1_000_000
+    return cost if math.isfinite(cost) else None

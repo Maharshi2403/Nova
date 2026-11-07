@@ -58,3 +58,17 @@ fn optional_cache_prices_roundtrip_and_validate() {
     value["models"][0]["cache_write_usd_per_million_tokens"] = (-1.0).into();
     assert!(ModelRegistry::from_json(&value.to_string()).is_err());
 }
+
+#[test]
+fn cached_tokens_priced_at_cached_rate() {
+    let mut model = ModelRegistry::from_json(VALID).unwrap().models.remove(0);
+    model.input_usd_per_million_tokens = 1.0;
+    model.output_usd_per_million_tokens = 2.0;
+    model.cached_input_usd_per_million_tokens = Some(0.1);
+    model.cache_write_usd_per_million_tokens = Some(1.25);
+    assert!((model.estimate_cost(100, 5, 20, 10).unwrap() - 0.0000945).abs() < 1e-12);
+    assert!(model.estimate_cost(10, 5, 9, 2).is_none());
+    model.cached_input_usd_per_million_tokens = None;
+    assert!(model.estimate_cost(100, 5, 20, 0).is_none());
+    assert_eq!(model.input_reservation_price(), 1.25);
+}
