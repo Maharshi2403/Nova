@@ -200,6 +200,7 @@ impl Repository for Store {
             (current.state, to),
             (RunState::Running, RunState::Paused)
                 | (RunState::Running, RunState::Completed)
+                | (RunState::Running, RunState::Failed)
                 | (RunState::Paused, RunState::Running)
                 | (RunState::Planning, RunState::Cancelled)
                 | (RunState::Planning, RunState::Failed)

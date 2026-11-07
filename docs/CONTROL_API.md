@@ -69,3 +69,10 @@ immutable for the run; subsequent launches reuse its hash. Each accepted launch
 also records an execution.launch event with its selected mode and pinned hash. Validation errors are
 redacted and reported directly to the local operator instead of a generic
 checklist.
+
+Run detail (`GET /v1/runs/{run_id}`) includes nullable `reason`. Idle runs
+with blocked or failed tasks transition to `failed`, with task IDs recorded in
+a `run.failed` event. Budget or path-lock denial leaves the run `running` and
+records a `run.stalled` reason once per unchanged reason. Execution can be
+started again after the constraint is resolved. `nova status` and the desktop
+run panel display this diagnostic.

@@ -319,14 +319,9 @@ impl Engine {
                 .map_err(|e| e.to_string())?;
             }
             if pool.active() == 0 {
-                let tasks = store.list_tasks(run).await.map_err(|e| e.to_string())?;
-                if !tasks.is_empty() && tasks.iter().all(|t| t.state == TaskState::Completed) {
-                    let record = store.get_run(run).await.map_err(|e| e.to_string())?;
-                    store
-                        .transition_run(run, record.revision, RunState::Completed, None)
-                        .await
-                        .map_err(|e| e.to_string())?;
-                }
+                explain_idle_run(store, run, pool.dispatch_denial)
+                    .await
+                    .map_err(|e| e.to_string())?;
                 // Paused runs are restarted explicitly via execute after resume.
                 return Ok(());
             }
@@ -625,5 +620,142 @@ pub fn default_python(root: &Path) -> PathBuf {
         root.join("Scripts/python.exe")
     } else {
         root.join("bin/python")
+    }
+}
+
+// Called only after the pool has drained: runnable work has had a dispatch attempt.
+async fn explain_idle_run(
+    store: &Store,
+    run: &RunId,
+    denial: Option<&str>,
+) -> Result<(), harness_store::StoreError> {
+    let record = store.get_run(run).await?;
+    if record.state != RunState::Running {
+        return Ok(());
+    }
+    let tasks = store.list_tasks(run).await?;
+    if !tasks.is_empty() && tasks.iter().all(|t| t.state == TaskState::Completed) {
+        store
+            .transition_run(run, record.revision, RunState::Completed, None)
+            .await?;
+        return Ok(());
+    }
+    let blocked: Vec<_> = tasks
+        .iter()
+        .filter(|t| matches!(t.state, TaskState::Blocked | TaskState::Failed))
+        .map(|t| t.id().to_string())
+        .collect();
+    let (kind, reason) = if !blocked.is_empty() {
+        ("run.failed", format!("blocked tasks: {blocked:?}"))
+    } else {
+        (
+            "run.stalled",
+            denial
+                .unwrap_or("no dispatchable tasks; inspect dependencies and task state")
+                .to_owned(),
+        )
+    };
+    let payload = serde_json::json!({"reason": reason});
+    if store
+        .latest_run_event(run, kind)
+        .await?
+        .is_none_or(|(_, old)| old != payload)
+    {
+        store.record_run_event(run, kind, &payload).await?;
+    }
+    if kind == "run.failed" {
+        store
+            .transition_run(run, record.revision, RunState::Failed, None)
+            .await?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod idle_tests {
+    use super::*;
+    use harness_core::domain::{Project, ProjectId, Run};
+    use harness_store::plans::PlanRepository;
+
+    async fn fixture() -> (tempfile::TempDir, Store, RunId) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join("db")).await.unwrap();
+        let project =
+            Project::new(ProjectId::new("proj-demo").unwrap(), "test", "/fixture").unwrap();
+        store.create_project(&project).await.unwrap();
+        let run = Run::new(RunId::new("r").unwrap(), project.id);
+        store.create_run(&run).await.unwrap();
+        let plan = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/plans/valid_plan.json"
+        ))
+        .unwrap();
+        store.propose_plan(&run.id, &plan).await.unwrap();
+        store.approve_plan(&run.id, 1).await.unwrap();
+        (dir, store, run.id)
+    }
+
+    #[tokio::test]
+    async fn all_blocked_run_fails_with_reason() {
+        let (_dir, store, run) = fixture().await;
+        let mut pool = WorkerPool::new(2, 2, 2, ResourceLocks::default()).unwrap();
+        pool.dispatch(
+            &store,
+            &run,
+            1,
+            |_| BudgetRequest {
+                estimated_microdollars: 0,
+                run_cap_microdollars: 0,
+                daily_cap_microdollars: 0,
+            },
+            |_, _, _| async { Err("injected failure".into()) },
+        )
+        .await
+        .unwrap();
+        while pool.join_next().await.is_some() {}
+        explain_idle_run(&store, &run, None).await.unwrap();
+        assert_eq!(store.get_run(&run).await.unwrap().state, RunState::Failed);
+        let (_, payload) = store
+            .latest_run_event(&run, "run.failed")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(payload["reason"].as_str().unwrap().contains("task-model"));
+    }
+
+    #[tokio::test]
+    async fn budget_denied_run_emits_stalled_once() {
+        let (_dir, store, run) = fixture().await;
+        let mut pool = WorkerPool::new(2, 2, 2, ResourceLocks::default()).unwrap();
+        for _ in 0..2 {
+            assert_eq!(
+                pool.dispatch(
+                    &store,
+                    &run,
+                    1,
+                    |_| BudgetRequest {
+                        estimated_microdollars: 1,
+                        run_cap_microdollars: 0,
+                        daily_cap_microdollars: 0
+                    },
+                    |_, _, _| async { panic!("budget denied task dispatched") }
+                )
+                .await
+                .unwrap(),
+                0
+            );
+            explain_idle_run(&store, &run, pool.dispatch_denial)
+                .await
+                .unwrap();
+        }
+        assert_eq!(store.get_run(&run).await.unwrap().state, RunState::Running);
+        let events = store.list_events(&run, 0, 1000).await.unwrap();
+        let stalled: Vec<_> = events.iter().filter(|e| e.kind == "run.stalled").collect();
+        assert_eq!(stalled.len(), 1);
+        let (_, payload) = store
+            .latest_run_event(&run, "run.stalled")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(payload["reason"], "budget denied");
     }
 }

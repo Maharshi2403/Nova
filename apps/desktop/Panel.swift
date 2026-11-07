@@ -399,6 +399,9 @@ struct Dashboard: View {
               state: run.state == "running" && model.tasks.allSatisfy { $0.attempt == 0 }
                 ? "ready" : run.state)
           }
+          if let reason = model.runReason {
+            Text(reason).font(.caption).foregroundStyle(.orange)
+          }
           if let planning = model.planning {
             Text(planning.summary).font(.caption).foregroundStyle(
               planning.status == "failed" ? .orange : .secondary

@@ -13,6 +13,7 @@ use uuid::Uuid;
 
 pub struct WorkerPool {
     capacity: usize,
+    pub(crate) dispatch_denial: Option<&'static str>,
     locks: ResourceLocks,
     jobs: JoinSet<Result<(), String>>,
     cancellations: HashMap<String, (RunId, watch::Sender<bool>)>,
@@ -33,6 +34,7 @@ impl WorkerPool {
         }
         Ok(Self {
             capacity,
+            dispatch_denial: None,
             locks,
             jobs: JoinSet::new(),
             cancellations: HashMap::new(),
@@ -71,6 +73,7 @@ impl WorkerPool {
         Fut: Future<Output = Result<(), String>> + Send + 'static,
         B: Fn(&Task) -> BudgetRequest,
     {
+        self.dispatch_denial = None;
         let ready = tick(store, run, now).await?;
         let tasks = store.list_tasks(run).await?;
         let run_record = store.get_run(run).await?;
@@ -88,6 +91,7 @@ impl WorkerPool {
                 .locks
                 .try_acquire(&project, &task.spec.candidate_paths, false)
             else {
+                self.dispatch_denial = Some("path lock unavailable");
                 continue;
             };
             let lease_id = Uuid::new_v4().to_string();
@@ -108,7 +112,11 @@ impl WorkerPool {
                 .await
             {
                 Ok(v) => v,
-                Err(StoreError::BudgetDenied(_) | StoreError::RevisionConflict { .. }) => continue,
+                Err(StoreError::BudgetDenied(_)) => {
+                    self.dispatch_denial = Some("budget denied");
+                    continue;
+                }
+                Err(StoreError::RevisionConflict { .. }) => continue,
                 Err(e) => return Err(e),
             };
             let task_run = leased.run_id.clone();

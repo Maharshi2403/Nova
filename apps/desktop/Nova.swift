@@ -10,6 +10,9 @@ struct RunItem: Decodable, Identifiable {
   let revision: Int
   let plan_version: Int?
 }
+struct RunDiagnostic: Decodable {
+  let reason: String?
+}
 struct Inventory: Decodable {
   let projects: [ProjectItem]
   let runs: [RunItem]
@@ -195,6 +198,7 @@ struct Bridge {
   @Published var runs: [RunItem] = []
   @Published var tasks: [TaskItem] = []
   @Published var settings: Settings?
+  @Published var runReason: String?
   @Published var selectedRun: RunItem?
   @Published var plan: PlanRecord?
   @Published var planning: PlanningStatus?
@@ -247,6 +251,7 @@ struct Bridge {
     Task { do { try await loadRun(run) } catch { self.error = error.localizedDescription } }
   }
   func loadRun(_ run: RunItem) async throws {
+    let runDetail = try Bridge.decode(RunDiagnostic.self, await Bridge.api("GET", "/v1/runs/\(run.id)"))
     let taskData = try await Bridge.api("GET", "/v1/runs/\(run.id)/tasks")
     let newTasks = try Bridge.decode([TaskItem].self, taskData)
     let newEvents = try Bridge.decode(
@@ -265,6 +270,7 @@ struct Bridge {
         PlanRecord.self, await Bridge.api("GET", "/v1/plans/\(run.id)/\(version)"))
     }
     guard selectedRun?.id == run.id else { return }
+    runReason = runDetail.reason
     tasks = newTasks
     events = newEvents
     approvals = newApprovals

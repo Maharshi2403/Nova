@@ -744,3 +744,62 @@ Verified on macOS (Apple Silicon), 2026-11-06:
 - `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 1 --cancel` — PASS.
 
 No paid provider calls or tags were used.
+
+## H-081 — Finish or explain runs that cannot progress
+
+Implemented on branch `agent/H-081` in `/Users/maharshi/Documents/nova-H-081`.
+The drained-pool path now fails runs with blocked/failed tasks and records task
+IDs in `run.failed`. Budget and lock denials produce a deduplicated `run.stalled`
+reason while keeping the run Running. Run detail exposes nullable `reason`,
+which appears in `nova status` and the desktop panel. Paused/cancelled runs are
+left alone. Added the already-supported core Running→Failed transition to the
+store allowlist. No migration or dependency changes.
+
+Regression tests: `all_blocked_run_fails_with_reason` and
+`budget_denied_run_emits_stalled_once` both PASS. Before this change, the first
+would observe Running instead of Failed and the second would find zero stall
+events. They exercise real store, scheduler and pool dispatch on temporary DBs.
+
+Validation on macOS arm64, 2026-11-07 (commands from this worktree):
+- `cargo fmt --all --check` — PASS.
+- `CARGO_TARGET_DIR=/Users/maharshi/Documents/Nova/target cargo clippy --locked --offline --workspace --all-targets -- -D warnings` — PASS.
+- `CARGO_TARGET_DIR=/Users/maharshi/Documents/Nova/target cargo build --locked --offline --workspace` — PASS (release build also PASS).
+- `CARGO_TARGET_DIR=/Users/maharshi/Documents/Nova/target cargo test --locked --offline -p harness-runtime --lib --test pool --test integration --test engine` — PASS: 2 unit, 2 engine, 6 integration, 4 pool tests.
+- `CARGO_TARGET_DIR=/Users/maharshi/Documents/Nova/target cargo test --locked --offline --workspace` — FAIL: CLI desktop daemon startup tests cannot start service in the restricted sandbox. Full suite stops there.
+- From `intelligence/`: `uv run --locked --offline ruff check .`, `uv run --locked --offline ruff format --check .`, `uv run --locked --offline mypy` — PASS (34 typed source files).
+- From `intelligence/`: `uv run --locked --offline pytest -q` — 106 passed, 9 failed. All failures are localhost binding PermissionError: operation not permitted.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --bin-dir ../Nova/target/debug --tasks 3` — FAIL: daemon exits at startup. The 100-task, fault and cancellation demos also fail at daemon startup using the target symlink.
+- `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk CLANG_MODULE_CACHE_PATH=/private/tmp/nova-swift-module-cache intelligence/.venv/bin/python scripts/build_desktop.py` — Swift compile PASS; packaging FAIL at iconutil (invalid iconset). Initial invocation before target/release was available also failed its prerequisite check.
+- `git diff --check` — PASS.
+
+Logs: `/private/tmp/nova-h081-*.log`. No tests skipped or assertions weakened.
+No paid calls, push, or tags. Changes remain uncommitted and unmerged because
+the handover requires a passing full gate before commit. Follow-up: rerun the
+full gate in an environment permitting loopback sockets and desktop icon tools.
+
+After the user's explicit permission to proceed, retried both full suites:
+- `uv run --locked --offline pytest -q` from `intelligence/` — 106 passed,
+  9 failed again with localhost bind PermissionError (2026-11-07).
+- `CARGO_TARGET_DIR=/Users/maharshi/Documents/Nova/target cargo test --locked --offline --workspace`
+  — stopped again at the same two CLI desktop daemon startup failures.
+- `git diff --check` — PASS.
+User authorization is established; execution restrictions still apply to this
+session. No permission escalation path is enabled by the session policy.
+
+
+Full-access validation, 2026-11-07: the earlier environment blockers are resolved.
+From `/Users/maharshi/Documents/nova-H-081`:
+- `cargo fmt --all --check` — PASS.
+- `cargo clippy --locked --offline --workspace --all-targets -- -D warnings` — PASS.
+- `cargo test --locked --offline --workspace` — PASS, 268 tests.
+- From `intelligence/`, `uv run --locked --offline ruff check .`,
+  `uv run --locked --offline ruff format --check .`,
+  `uv run --locked --offline mypy`, `uv run --locked --offline pytest -q`
+  — all PASS; 115 Python tests.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 3`,
+  `--tasks 100`, `--tasks 1 --fault`, `--tasks 1 --cancel` — all PASS.
+- `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk CLANG_MODULE_CACHE_PATH=/private/tmp/nova-swift-module-cache intelligence/.venv/bin/python scripts/build_desktop.py`
+  — PASS, including Swift compilation, icons and desktop packaging.
+- `git diff --check` — PASS.
+The implementation is ready for its H-081 commit and fast-forward integration.
+No paid provider calls, push, or tags.

@@ -567,6 +567,7 @@ struct CreateRunRequest {
 
 #[derive(Serialize)]
 struct RunResponse {
+    reason: Option<String>,
     id: String,
     project_id: String,
     state: RunState,
@@ -1060,7 +1061,21 @@ async fn get_run(
     RoutePath(run_id): RoutePath<String>,
 ) -> ApiResult<RunResponse> {
     let run = load_run(&state.store, run_id).await?;
-    Ok((StatusCode::OK, Json(run_response(run))))
+    let diagnostic = state
+        .store
+        .latest_run_event(&run.id, "run.")
+        .await
+        .map_err(|_| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "run_diagnostic",
+                "run diagnostic unavailable",
+            )
+        })?;
+    let mut response = run_response(run);
+    response.reason =
+        diagnostic.and_then(|(_, payload)| payload["reason"].as_str().map(str::to_owned));
+    Ok((StatusCode::OK, Json(response)))
 }
 
 async fn pause_run(
@@ -1185,6 +1200,7 @@ async fn load_run(store: &Store, run_id: String) -> Result<Run, (StatusCode, Jso
 
 fn run_response(run: Run) -> RunResponse {
     RunResponse {
+        reason: None,
         id: run.id.to_string(),
         project_id: run.project_id.to_string(),
         state: run.state,
