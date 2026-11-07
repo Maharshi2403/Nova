@@ -136,3 +136,8 @@ line ranges until the whole unchanged file has been covered, or use exact
 `old`/`new` replacement edits. Byte-clipped reads and reads of an older file
 version do not authorize a rewrite. New file creation remains available up to
 the write-size cap.
+
+The diff gate scans changed files for recognizable credential formats and
+high-entropy quoted assignments to secret-like names. Type annotations,
+environment lookups and placeholders are accepted. Secret findings contain only
+the file path and line number; credential values are never included.

@@ -107,3 +107,67 @@ async fn high_risk_change_requires_review() {
         .unwrap();
     assert!(result.requires_review);
 }
+
+#[tokio::test]
+async fn secret_detection_table() {
+    let repo = fixture().await;
+    let task = task(Risk::Low);
+    let gate = DiffGate::new(&task.spec.candidate_paths).unwrap();
+    let cases = [
+        ("DB_PASSWORD = \"aB3dE5gH7jK9mN1pQ2sT4vW6\"", true),
+        ("password: Optional[str]", false),
+        (
+            "password_description = \"Describe the configured authentication process\"",
+            false,
+        ),
+        ("password = os.environ[\"PASSWORD\"]", false),
+        ("secret = env::var(\"SECRET_KEY\")", false),
+        ("api_key = \"changeme\"", false),
+        ("password = \"<your-long-application-password>\"", false),
+        ("password = \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"", false),
+        ("password = \"abcdabcdabcdabcdabcdabcd\"", false),
+        ("api_key = None", false),
+        ("secret: str | None = None", false),
+        ("token = \"short\"", false),
+        ("sk-A1b2C3d4E5f6G7h8I9j0K1l2", true),
+        ("AKIA1234567890ABCDEF", true),
+        ("ghp_abcdefghijklmnopqrstuvwxyz0123456789", true),
+        ("xoxb-1234567890-ABCdefGHIjkl", true),
+        ("-----BEGIN PRIVATE KEY-----", true),
+        ("-----BEGIN RSA PRIVATE KEY-----", true),
+        (
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJmaXh0dXJlIn0.abcdefghijklmnopqrstuv",
+            true,
+        ),
+        ("password = \"aB3dE5gH7jK9mN1pQ2sT4vW6\"", true),
+        ("api_key: str = 'aB3dE5gH7jK9mN1pQ2sT4vW6'", true),
+        ("{\"secret\":\"aB3dE5gH7jK9mN1pQ2sT4vW6\"}", true),
+    ];
+    for (index, (contents, expected)) in cases.iter().enumerate() {
+        std::fs::write(repo.path().join("allowed.txt"), format!("{contents}\n")).unwrap();
+        let result = gate.check(&task, repo.path()).await;
+        assert_eq!(
+            matches!(
+                result,
+                Err(harness_runtime::diff_gate::DiffGateError::SecretDetected(_))
+            ),
+            *expected,
+            "case {index}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn finding_never_echoes_secret() {
+    let repo = fixture().await;
+    let secret = "sk-A1b2C3d4E5f6G7h8I9j0K1l2";
+    std::fs::write(repo.path().join("allowed.txt"), format!("safe\n{secret}\n")).unwrap();
+    let task = task(Risk::Low);
+    let err = DiffGate::new(&task.spec.candidate_paths)
+        .unwrap()
+        .check(&task, repo.path())
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("allowed.txt:2"));
+    assert!(!err.to_string().contains(secret));
+}

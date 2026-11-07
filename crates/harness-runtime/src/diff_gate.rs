@@ -48,6 +48,7 @@ pub struct DiffGate {
     scope: GlobSet,
     max_diff_bytes: u64,
     secret_pattern: Regex,
+    literal_pattern: Regex,
 }
 
 impl DiffGate {
@@ -81,9 +82,43 @@ impl DiffGate {
                 .map_err(|e| DiffGateError::InvalidScope(e.to_string()))?,
             max_diff_bytes,
             secret_pattern: Regex::new(
-                r#"(?i)\b(api[_-]?key|access[_-]?token|secret|password)\b\s*[:=]\s*["']?[^\s"']{8,}"#,
-            )
-            .expect("static secret pattern is valid"),
+                r"(?:\bAKIA[A-Z0-9]{16}\b|\bsk-[A-Za-z0-9_-]{20,}|\bghp_[A-Za-z0-9]{36,}|\bxox[baprs]-[A-Za-z0-9-]{10,}|-----BEGIN|\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})",
+            ).expect("static secret format pattern is valid"),
+            literal_pattern: Regex::new(
+                r#"(?i)\b(?:[A-Za-z_][A-Za-z0-9_]*_)?(?:api[_-]?key|access[_-]?token|secret(?:[_-]?key)?|password|token|private[_-]?key|signing[_-]?key)\b["']?(?:\s*:\s*[A-Za-z_][A-Za-z0-9_\[\], .|]*)?\s*[:=]\s*(?:"([^"\r\n]{20,})"|'([^'\r\n]{20,})')"#,
+            ).expect("static secret assignment pattern is valid"),
+        })
+    }
+
+    fn contains_secret(&self, text: &str) -> bool {
+        if self.secret_pattern.is_match(text) {
+            return true;
+        }
+        self.literal_pattern.captures_iter(text).any(|capture| {
+            let value = capture
+                .get(1)
+                .or_else(|| capture.get(2))
+                .expect("literal alternative")
+                .as_str();
+            if value.starts_with('<') && value.ends_with('>') {
+                return false;
+            }
+            let mut counts = std::collections::HashMap::new();
+            let length = value.chars().count();
+            if length < 20 {
+                return false;
+            }
+            for c in value.chars() {
+                *counts.entry(c).or_insert(0usize) += 1;
+            }
+            let entropy: f64 = counts
+                .values()
+                .map(|count| {
+                    let p = *count as f64 / length as f64;
+                    -p * p.log2()
+                })
+                .sum();
+            entropy >= 3.5
         })
     }
 
@@ -148,8 +183,15 @@ impl DiffGate {
                         source,
                     })?;
                     let contents = String::from_utf8_lossy(&contents);
-                    if self.secret_pattern.is_match(&contents) {
-                        return Err(DiffGateError::SecretDetected(normalized));
+                    if let Some((line, _)) = contents
+                        .lines()
+                        .enumerate()
+                        .find(|(_, text)| self.contains_secret(text))
+                    {
+                        return Err(DiffGateError::SecretDetected(format!(
+                            "{normalized}:{}",
+                            line + 1
+                        )));
                     }
                 }
             }

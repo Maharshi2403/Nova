@@ -986,3 +986,28 @@ macOS arm64, 2026-11-07:
 - Final Python gate — PASS, 127 tests, including default-disabled cache control.
 - `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 3` — PASS.
 - `git diff --check` — PASS. No paid calls, push, tags or dependencies added.
+
+## H-096 — Precise secret detection without blocking type annotations
+
+Known AWS, OpenAI-style, GitHub, Slack, PEM and JWT formats are detected.
+Assignments of quoted literals to secret-like names require at least 20
+characters and Shannon entropy >= 3.5; typed declarations, env lookups, low
+entropy values and angle-bracket placeholders remain allowed. Findings include
+only path and line, never the matched value. Existing scope, protected-path,
+diff-size and human review checks remain unchanged. Operations docs updated.
+
+Tests added: `secret_detection_table` (over 20 positive/negative cases) and
+`finding_never_echoes_secret`. Before implementation: both failed (3 passed,
+2 failed); after implementation: all 5 diff gate tests passed. Fixtures use
+synthetic strings only. No dependencies or protocol/schema changes.
+
+Final validation on macOS arm64, 2026-11-07, after H-083b and H-087a rebase:
+- `CARGO_TARGET_DIR=/private/tmp/nova-h096-target cargo fmt --all --check` — PASS.
+- `CARGO_TARGET_DIR=/private/tmp/nova-h096-target cargo clippy --locked --offline --workspace --all-targets -- -D warnings` — PASS.
+- `CARGO_TARGET_DIR=/private/tmp/nova-h096-target cargo test --locked --offline --workspace` — PASS, 282 tests.
+- Python ruff lint/format, mypy, pytest gate — PASS; 127 tests after rebase.
+- Offline demo using `/private/tmp/nova-h096-target/debug`: tasks 3, 100, fault and cancel — all PASS.
+- `git diff --check` — PASS. No paid calls, push, tags or dependencies added.
+Initial gate attempts exposed a missing worktree venv (fixed with uv sync) and
+the planning-status race fixed separately as H-083b. Separate target directories
+now isolate worktree compiler artifacts from main.
