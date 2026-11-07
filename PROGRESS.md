@@ -803,3 +803,24 @@ From `/Users/maharshi/Documents/nova-H-081`:
 - `git diff --check` — PASS.
 The implementation is ready for its H-081 commit and fast-forward integration.
 No paid provider calls, push, or tags.
+
+## H-082 — Detect overlapping glob scopes in path locks
+
+Compare normalized fixed prefixes up to glob metacharacters (`*`, `?`, `[`,
+`{`) whenever either scope is a glob. Potential overlap serializes
+conservatively; literal directory boundaries retain their existing behavior.
+No dependencies or protocol changes. Operations docs describe this behavior.
+
+macOS arm64, 2026-11-07:
+- Baseline: H-081 full workspace gate passed (268 tests), including existing locks.
+- `CARGO_TARGET_DIR=../Nova/target cargo test --locked --offline -p harness-runtime --test locks`
+  before implementation — 4 passed, 2 failed (`glob_and_literal_overlap`,
+  `double_star_overlaps_child`), demonstrating the bug.
+- `cargo test --locked --offline -p harness-runtime --test locks`
+  after implementation — all 6 passed, including `disjoint_globs_parallel`.
+- `cargo fmt --all --check` — PASS.
+- `cargo clippy --locked --offline --workspace --all-targets -- -D warnings` — PASS.
+- `cargo test --locked --offline --workspace` — PASS, 271 tests.
+- Python gate from `intelligence/` (unchanged Python): `uv run --locked --offline ruff check .`, `uv run --locked --offline ruff format --check .`, `uv run --locked --offline mypy`, `uv run --locked --offline pytest -q` — PASS, 115 tests.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 3`, `--tasks 100`, `--tasks 1 --fault`, `--tasks 1 --cancel` — all PASS.
+- `git diff --check` — PASS. No paid calls, push, tags or dependencies added.

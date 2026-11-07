@@ -44,3 +44,41 @@ fn cleanup_on_unwind() {
     });
     assert!(locks.try_acquire("p", &[], true).is_some());
 }
+
+#[test]
+fn glob_and_literal_overlap() {
+    for (a, b) in [
+        ("src/*.py", "src/app.py"),
+        ("src/a?.rs", "src/ab.rs"),
+        ("src/[ab].rs", "src/a.rs"),
+        ("src/{a,b}.rs", "src/a.rs"),
+    ] {
+        for (first, second) in [(a, b), (b, a)] {
+            let locks = ResourceLocks::default();
+            let _guard = locks.try_acquire("p", &[first.into()], false).unwrap();
+            assert!(
+                locks.try_acquire("p", &[second.into()], false).is_none(),
+                "{first} vs {second}"
+            );
+        }
+    }
+}
+
+#[test]
+fn disjoint_globs_parallel() {
+    let locks = ResourceLocks::default();
+    let _guard = locks.try_acquire("p", &["src/a/**".into()], false).unwrap();
+    assert!(locks.try_acquire("p", &["docs/**".into()], false).is_some());
+}
+
+#[test]
+fn double_star_overlaps_child() {
+    let locks = ResourceLocks::default();
+    let _guard = locks.try_acquire("p", &["src/**".into()], false).unwrap();
+    assert!(
+        locks
+            .try_acquire("p", &["src/nested/app.rs".into()], false)
+            .is_none()
+    );
+    assert!(locks.try_acquire("p", &["src".into()], false).is_none());
+}

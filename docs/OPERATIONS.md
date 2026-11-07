@@ -118,3 +118,9 @@ included as task input. The first accepted execution records its commit in an
 append-only execution.source event; resumes reuse that revision. Create a new run
 to use a newer commit. Trust, plan approval, exact command approvals, budgets and
 verification remain enforced. Normal API/CLI mode still requires a clean checkout.
+
+Path locks serialize potentially overlapping write scopes within a project.
+For glob scopes, Nova compares the literal prefixes before the first wildcard;
+ambiguous overlap serializes conservatively. Disjoint prefixes such as
+`src/a/**` and `docs/**` may execute concurrently. Literal paths retain directory
+boundary checks, and exclusive locks remain project scoped.

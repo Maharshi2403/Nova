@@ -46,6 +46,13 @@ fn normalize(path: &str) -> Option<String> {
 }
 
 fn overlaps(a: &str, b: &str) -> bool {
+    // Compare the fixed part of each glob conservatively. A shared possible
+    // prefix must serialize; directory boundaries still matter for literals.
+    let a_prefix = a.split(['*', '?', '[', '{']).next().unwrap_or("");
+    let b_prefix = b.split(['*', '?', '[', '{']).next().unwrap_or("");
+    if a_prefix != a || b_prefix != b {
+        return a_prefix.starts_with(b_prefix) || b_prefix.starts_with(a_prefix);
+    }
     a == b
         || a.strip_prefix(b).is_some_and(|v| v.starts_with('/'))
         || b.strip_prefix(a).is_some_and(|v| v.starts_with('/'))
