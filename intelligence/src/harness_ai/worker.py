@@ -40,7 +40,8 @@ def serve(stdin: BinaryIO, stdout: BinaryIO) -> int:
             return 0
         if envelope.kind == "start_task":
             try:
-                run_mock_assignment(envelope, stdin, stdout)
+                if run_mock_assignment(envelope, stdin, stdout):
+                    return 0
             except (AssignmentError, FrameError) as exc:
                 _log(f"assignment aborted: {exc}")
                 return 2

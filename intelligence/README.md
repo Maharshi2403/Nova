@@ -25,3 +25,10 @@ worker loops. This is a byte bound, not a model-specific token measurement; sche
 and provider framing add request overhead. Existing Rust token/spend limits remain
 authoritative. Prefix fingerprints indicate identity, not a cache hit. Only provider
 usage supplies measured cached input tokens; absent usage stays unknown.
+
+Live coder workers use a dedicated stdin reader and await broker responses by
+request correlation ID. Model calls and repository tools leave the event loop
+available for heartbeats and deadlines. A daemon cancel frame cancels the
+assignment, emits `failed` with reason `cancelled`, and exits successfully.
+Each live worker handles one assignment; the reader is stopped on completion.
+No credentials enter the coder process; Rust still authorizes provider calls.

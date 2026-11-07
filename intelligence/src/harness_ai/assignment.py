@@ -88,7 +88,7 @@ def _envelope(
     )
 
 
-def run_mock_assignment(start: Envelope, stdin: BinaryIO, stdout: BinaryIO) -> None:
+def run_mock_assignment(start: Envelope, stdin: BinaryIO, stdout: BinaryIO) -> bool:
     """Deterministic worker behaviour used to exercise the protocol end to end.
 
     It reads one file through the broker, reports usage with unknown counts and completes.
@@ -105,7 +105,7 @@ def run_mock_assignment(start: Envelope, stdin: BinaryIO, stdout: BinaryIO) -> N
                 Failed(reason=f"bad start_task: {exc}", retryable=False).model_dump(),
             ),
         )
-        return
+        return False
     if (
         assignment.model.provider != "mock"
         and assignment.role == "coder"
@@ -116,23 +116,25 @@ def run_mock_assignment(start: Envelope, stdin: BinaryIO, stdout: BinaryIO) -> N
         from harness_ai.providers.base import ProviderError
 
         try:
+            from harness_ai.broker_stdio import AsyncBroker
 
-            def tool(name: str, arguments: dict[str, Any]) -> ToolResponse:
-                request = _envelope(start, "tool_request", {"tool": name, "arguments": arguments})
-                write_frame(stdout, request)
-                reply = read_frame(stdin)
-                if (
-                    reply is None
-                    or reply.kind != "tool_response"
-                    or reply.correlation_id != str(request.message_id)
-                ):
-                    raise AssignmentError("missing or mismatched tool response")
-                return ToolResponse.model_validate(reply.payload)
+            async def run_live() -> None:
+                broker = AsyncBroker(start, stdin, stdout)
 
-            def emit(kind: str, payload: dict[str, Any]) -> None:
-                write_frame(stdout, _envelope(start, kind, payload))  # type: ignore[arg-type]
+                def emit(kind: str, payload: dict[str, Any]) -> None:
+                    write_frame(stdout, _envelope(start, kind, payload))  # type: ignore[arg-type]
 
-            asyncio.run(code_task(assignment, BrokerProvider(tool), tool, emit))
+                try:
+                    async with asyncio.timeout(assignment.timeout_seconds):
+                        await code_task(assignment, BrokerProvider(broker.tool), broker.tool, emit)
+                except asyncio.CancelledError:
+                    emit("failed", Failed(reason="cancelled", retryable=False).model_dump())
+                except TimeoutError:
+                    emit("failed", Failed(reason="task timeout", retryable=False).model_dump())
+                finally:
+                    await broker.close()
+
+            asyncio.run(run_live())
         except ProviderError:
             write_frame(
                 stdout,
@@ -142,15 +144,16 @@ def run_mock_assignment(start: Envelope, stdin: BinaryIO, stdout: BinaryIO) -> N
                     {"reason": "live provider disabled or unavailable", "retryable": False},
                 ),
             )
-        return
+        # The dedicated reader owns stdin for this one-shot live worker.
+        return True
     if assignment.model.provider != "mock":
         failed = Failed(reason="only the mock provider is available", retryable=False)
         write_frame(stdout, _envelope(start, "failed", failed.model_dump()))
-        return
+        return False
 
     if assignment.role == "mock_coder":
         run_mock_coder(start, stdin, stdout)
-        return
+        return False
 
     write_frame(stdout, _envelope(start, "progress", {"message": "reading context"}))
     request = _envelope(
@@ -164,7 +167,7 @@ def run_mock_assignment(start: Envelope, stdin: BinaryIO, stdout: BinaryIO) -> N
     if reply is None:
         raise AssignmentError("stream closed while waiting for tool_response")
     if reply.kind == "cancel":
-        return
+        return False
     if reply.kind != "tool_response" or reply.correlation_id != str(request.message_id):
         raise AssignmentError("tool_response does not match the outstanding request")
     response = ToolResponse.model_validate(reply.payload)
@@ -181,9 +184,10 @@ def run_mock_assignment(start: Envelope, stdin: BinaryIO, stdout: BinaryIO) -> N
     if not response.ok:
         failed = Failed(reason=response.error or "tool failed", retryable=True)
         write_frame(stdout, _envelope(start, "failed", failed.model_dump()))
-        return
+        return False
     done = Completed(summary="mock assignment finished", changed_paths=[], claimed_tests=[])
     write_frame(stdout, _envelope(start, "completed", done.model_dump()))
+    return False
 
 
 def run_mock_coder(start: Envelope, stdin: BinaryIO, stdout: BinaryIO) -> None:

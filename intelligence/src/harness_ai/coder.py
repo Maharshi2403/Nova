@@ -13,7 +13,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from harness_ai.assignment import Completed, Failed, StartTask, ToolResponse, Usage
+from harness_ai.assignment import Completed, Failed, StartTask, Usage
+from harness_ai.broker_stdio import Tool, call_tool
 from harness_ai.context import build_prompt, task_handoff
 from harness_ai.plan import TaskProposal
 from harness_ai.providers.base import ModelProvider, PermanentProviderError, ProviderError
@@ -28,7 +29,6 @@ class Action(BaseModel):
     summary: str = Field(max_length=2000)
 
 
-Tool = Callable[[str, dict[str, Any]], ToolResponse]
 Emit = Callable[[str, dict[str, Any]], None]
 
 
@@ -42,7 +42,7 @@ async def code_task(assignment: StartTask, provider: ModelProvider, tool: Tool, 
             emit("heartbeat", {})
 
     try:
-        description = tool("task.describe", {})
+        description = await call_tool(tool, "task.describe", {})
         if not description.ok or not isinstance(description.result, dict):
             raise PermanentProviderError("task context denied")
         data = dict(description.result)
@@ -90,7 +90,8 @@ async def code_task(assignment: StartTask, provider: ModelProvider, tool: Tool, 
                 async def authorize(
                     model: str, attempt: int, output_limit: int = limit, input_bound: int = bound
                 ) -> bool:
-                    response = tool(
+                    response = await call_tool(
+                        tool,
                         "model.authorize",
                         {
                             "model_id": model,
@@ -149,7 +150,7 @@ async def code_task(assignment: StartTask, provider: ModelProvider, tool: Tool, 
                 arguments = json.loads(action.arguments_json or "null")
                 if not isinstance(arguments, dict):
                     raise PermanentProviderError("tool arguments must be an object")
-                response = tool(str(action.tool), arguments)
+                response = await call_tool(tool, str(action.tool), arguments)
                 if response.ok and action.tool == "repo.patch":
                     path = str(arguments.get("path", ""))
                     if path not in changed:

@@ -8,6 +8,7 @@ import sys
 from typing import Any, BinaryIO, cast
 
 from harness_ai.assignment import ToolResponse, _envelope
+from harness_ai.broker_stdio import call_tool
 from harness_ai.framing import read_frame, write_frame
 from harness_ai.handshake import build_ack
 from harness_ai.orchestrator import PlanningError, plan_goal
@@ -36,7 +37,8 @@ class BrokerProvider:
         max_output_tokens: int,
         timeout_seconds: float,
     ) -> ModelResult:
-        response: ToolResponse = self.tool(
+        response: ToolResponse = await call_tool(
+            self.tool,
             "model.complete",
             {
                 "messages": messages,

@@ -824,3 +824,29 @@ macOS arm64, 2026-11-07:
 - Python gate from `intelligence/` (unchanged Python): `uv run --locked --offline ruff check .`, `uv run --locked --offline ruff format --check .`, `uv run --locked --offline mypy`, `uv run --locked --offline pytest -q` — PASS, 115 tests.
 - `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 3`, `--tasks 100`, `--tasks 1 --fault`, `--tasks 1 --cancel` — all PASS.
 - `git diff --check` — PASS. No paid calls, push, tags or dependencies added.
+
+## H-085 — Keep workers responsive during brokered model calls
+
+Live coder requests now use a dedicated daemon reader, bounded JSONL buffering,
+and correlation-indexed asyncio futures. Model and repository calls await those
+futures. Cancellation handles Rust's session-wide cancel envelope, emits a
+cancelled failure and exits 0. The worker owns one live assignment and stops its
+reader before exit; mock assignment behavior remains compatible. The entire
+live assignment, including initial context retrieval, has a deadline. No new
+dependencies or protocol/schema changes. Intelligence README updated.
+
+Tests added: `heartbeat_continues_during_slow_model_call`,
+`asyncio_timeout_interrupts_model_wait`, `cancel_frame_during_tool_exits_cleanly`.
+The first run failed collection because the asynchronous broker did not exist.
+Against the original synchronous broker, heartbeat/timeout checks cannot advance
+while stdin blocks, and cancellation raises a protocol error instead of exiting
+successfully. The cancellation test exercises a real worker subprocess with
+Rust's session-wide cancel shape. All three now pass on macOS arm64.
+
+Validation on macOS arm64, 2026-11-07:
+- `cargo fmt --all --check` — PASS.
+- `cargo clippy --locked --offline --workspace --all-targets -- -D warnings` — PASS.
+- `cargo test --locked --offline --workspace` — PASS, 268 tests (H-081 base).
+- From `intelligence/`: `uv run --locked --offline ruff check .`, `uv run --locked --offline ruff format --check .`, `uv run --locked --offline mypy`, `uv run --locked --offline pytest -q` — PASS, 118 tests, 36 typed source/test files.
+- `intelligence/.venv/bin/python scripts/offline_demo.py --tasks 3` — PASS.
+- `git diff --check` — PASS. No paid calls, push, tags or dependencies added.
