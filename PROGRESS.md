@@ -1064,3 +1064,30 @@ Final validation on macOS arm64, 2026-11-07:
 - Full Python gate (ruff lint/format, mypy, pytest) — PASS, 131 tests.
 - Build and offline demos (isolated target binaries): 3 tasks, 100 tasks, fault and cancel — all PASS.
 - `git diff --check` — PASS. No paid calls, push or tags.
+
+## H-088 — Bounded multi-turn coder working memory
+
+The coder retains six bounded action/tool/args/result/summary/notes records,
+compacting only older turns into deterministic file read ranges, changed files,
+command argv/exit codes and hypotheses. Memory serialization is bounded to a
+24 KiB default maximum, reduced for smaller runtime contexts and worst-case
+JSON escaping. Record excerpts are bounded before insertion and last-six
+records are never re-summarized. Summary collections are capped and omitted
+facts counted, prioritizing changed-file retention. The action schema adds an
+optional notes field with a strict 2 KiB UTF-8 cap, preserving older outputs.
+The prompt builder supports an explicit bounded history allowance without
+changing the default 2 KiB limit for other callers. Intelligence README updated.
+
+Required tests memory_retains_changed_files_after_compaction,
+memory_block_within_cap and last_k_turns_verbatim initially failed collection
+because WorkingMemory did not exist. All now pass, including exact recent
+args/results comparison, command exit-code retention, model-facing transcript
+coverage and multibyte notes limits. No dependency or worker protocol changes.
+
+Final validation on macOS arm64, 2026-11-07:
+- `CARGO_TARGET_DIR=/private/tmp/nova-h088-target cargo fmt --all --check` — PASS.
+- `CARGO_TARGET_DIR=/private/tmp/nova-h088-target cargo clippy --locked --offline --workspace --all-targets -- -D warnings` — PASS.
+- `CARGO_TARGET_DIR=/private/tmp/nova-h088-target cargo test --locked --offline --workspace` — PASS, 285 tests.
+- Full Python gate (ruff lint/format, mypy and pytest) — PASS, 137 tests, 39 typed files.
+- Build plus isolated-binary offline demo, 3 tasks — PASS.
+- `git diff --check` — PASS. No paid calls, push, tags or dependencies added.

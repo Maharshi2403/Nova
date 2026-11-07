@@ -92,3 +92,24 @@ def test_coder_ends_cleanly_on_turn_budget() -> None:
     assert calls.count("repo.read") == 1
     assert events[-1] == ("failed", {"reason": "turn budget exhausted", "retryable": True})
     assert "final model turn" in provider.calls[0]["messages"][1]["content"].lower()
+
+
+def test_coder_sends_bounded_transcript() -> None:
+    _, events, provider = exercise(reads=8)
+    prompt = json.loads(provider.calls[-1]["messages"][1]["content"])
+    memory = json.loads(prompt["previous_summary"])
+    assert len(memory["recent"]) == 6
+    assert memory["summary"]["files_read"][0]["path"] == "README.md"
+    assert events[-1][0] == "completed"
+
+
+def test_action_notes_enforce_utf8_byte_cap() -> None:
+    import pytest
+    from pydantic import ValidationError
+
+    from harness_ai.coder import Action
+
+    data = {"action": "completed", "tool": None, "arguments_json": None, "summary": "done"}
+    assert len(Action.model_validate({**data, "notes": "🔒" * 512}).notes.encode()) == 2048
+    with pytest.raises(ValidationError):
+        Action.model_validate({**data, "notes": "🔒" * 513})

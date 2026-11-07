@@ -32,3 +32,12 @@ available for heartbeats and deadlines. A daemon cancel frame cancels the
 assignment, emits `failed` with reason `cancelled`, and exits successfully.
 Each live worker handles one assignment; the reader is stopped on completion.
 No credentials enter the coder process; Rust still authorizes provider calls.
+
+Coder working memory retains six bounded turn records without summarizing them
+again. Older turns compact deterministically into successful read ranges,
+changed files, command argv/exit codes and model hypotheses. The memory block
+has a 24 KiB default ceiling; smaller context budgets reduce it further, allowing
+for JSON escaping while preserving required task data. Excerpts are bounded
+before insertion (results at most 8 KiB), and omitted summary facts are counted.
+The optional model action `notes` field accepts at most 2 KiB of UTF-8 scratchpad
+text. Memory and notes never grant permissions or substitute for Rust evidence.

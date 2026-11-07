@@ -74,13 +74,17 @@ def build_prompt(
     snippets: list[dict[str, Any]] | None = None,
     previous_summary: str = "",
     byte_cap: int = MAX_CONTEXT_BYTES,
+    previous_summary_byte_cap: int = 2048,
 ) -> Prompt:
     """Keep mandatory fields intact; greedily fit bounded snippets and a short handoff.
 
     The cap covers the serialized messages. Tokenizers and provider framing differ;
     this byte cap must not be recorded as observed input tokens or a cache hit.
     """
-    if not 0 < byte_cap <= MAX_CONTEXT_BYTES:
+    if (
+        not 0 < byte_cap <= MAX_CONTEXT_BYTES
+        or not 0 <= previous_summary_byte_cap <= MAX_CONTEXT_BYTES
+    ):
         raise ContextLimitError("invalid context byte cap")
     system = ROLE_PREFIXES[role] + DATA_RULE
     prefix_hash = hashlib.sha256(system.encode("utf-8")).hexdigest()
@@ -125,7 +129,7 @@ def build_prompt(
     truncated |= len(entries) > 8
     # Fit the handoff by serialized size rather than character count: escaped text
     # and non-ASCII content must obey the same cap as plain ASCII.
-    low, high = 0, min(len(previous_summary.encode("utf-8")), 2048)
+    low, high = 0, min(len(previous_summary.encode("utf-8")), previous_summary_byte_cap)
     while low < high:
         mid = (low + high + 1) // 2
         data["previous_summary"] = _clip(previous_summary, mid)

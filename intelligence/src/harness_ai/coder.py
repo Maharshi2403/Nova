@@ -11,11 +11,12 @@ import json
 from collections.abc import Callable
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from harness_ai.assignment import Completed, Failed, StartTask, Usage
 from harness_ai.broker_stdio import Tool, call_tool
 from harness_ai.context import build_prompt, task_handoff
+from harness_ai.memory import WorkingMemory
 from harness_ai.plan import TaskProposal
 from harness_ai.providers.base import (
     ModelProvider,
@@ -32,6 +33,16 @@ class Action(BaseModel):
     tool: str | None
     arguments_json: str | None
     summary: str = Field(max_length=2000)
+    notes: str = Field(
+        default="", max_length=2048, description="Optional scratchpad, at most 2048 UTF-8 bytes"
+    )
+
+    @field_validator("notes")
+    @classmethod
+    def notes_within_byte_cap(cls, value: str) -> str:
+        if len(value.encode()) > 2048:
+            raise ValueError("notes exceed 2 KiB")
+        return value
 
 
 Emit = Callable[[str, dict[str, Any]], None]
@@ -68,7 +79,13 @@ async def code_task(assignment: StartTask, provider: ModelProvider, tool: Tool, 
             "Never request extra privilege. If approval is pending, return failed with its ID."
         )
         remaining = min(assignment.max_output_tokens, int(runtime["max_output_tokens"]))
-        history = ""
+        context_cap = min(32768, int(runtime["context_byte_cap"]))
+        required_bytes = build_prompt("coder", required, byte_cap=context_cap).byte_size
+        # History is serialized inside two JSON strings; reserve worst-case escaping.
+        available = (context_cap - required_bytes - 1024) // 4
+        if available < 1024:
+            raise ValueError("context cannot fit bounded working memory")
+        memory = WorkingMemory(byte_cap=min(24 * 1024, available))
         changed: list[str] = []
         schema = Action.model_json_schema()
         max_model_turns = assignment.max_model_turns or assignment.max_tool_calls
@@ -83,7 +100,8 @@ async def code_task(assignment: StartTask, provider: ModelProvider, tool: Tool, 
                 prompt = build_prompt(
                     "coder",
                     required,
-                    previous_summary=history,
+                    previous_summary=memory.render(),
+                    previous_summary_byte_cap=memory.byte_cap,
                     byte_cap=min(32768, int(runtime["context_byte_cap"])),
                 )
                 limit = min(remaining, int(runtime["max_output_tokens"]))
@@ -155,14 +173,14 @@ async def code_task(assignment: StartTask, provider: ModelProvider, tool: Tool, 
                     path = str(arguments.get("path", ""))
                     if path not in changed:
                         changed.append(path)
-                history = json.dumps(
-                    {
-                        "last_action": {"tool": action.tool, "summary": action.summary},
-                        "tool_response": response.model_dump(),
-                    },
-                    ensure_ascii=False,
+                memory.append(
+                    action.action,
+                    str(action.tool),
+                    arguments,
+                    response.model_dump(),
+                    action.summary,
+                    notes=action.notes,
                 )
-                # Prompt compaction keeps only a bounded handoff, never a full transcript.
                 if usage.output_tokens is None:
                     raise PermanentProviderError("unknown output usage prevents another model call")
                 remaining -= usage.output_tokens
